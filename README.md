@@ -1,6 +1,8 @@
 # hyprstate
 
 [![CI](https://github.com/flaviomilan/hyprstate/actions/workflows/ci.yml/badge.svg)](https://github.com/flaviomilan/hyprstate/actions/workflows/ci.yml)
+[![crates.io](https://img.shields.io/crates/v/hyprstate.svg)](https://crates.io/crates/hyprstate)
+[![AUR](https://img.shields.io/aur/version/hyprstate-bin?label=AUR)](https://aur.archlinux.org/packages/hyprstate-bin)
 [![Coverage: 100%](https://img.shields.io/badge/coverage-100%25-brightgreen.svg)](CONTRIBUTING.md#development)
 [![License: MIT OR Apache-2.0](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](#license)
 [![Hyprland 0.55+](https://img.shields.io/badge/Hyprland-0.55%2B-58e1ff.svg)](https://hyprland.org)
@@ -27,10 +29,36 @@ hyprstate workset list | delete NAME
 
 ## Install
 
-Requires a recent stable Rust toolchain.
+**Arch Linux / Omarchy** ([AUR](https://aur.archlinux.org/packages/hyprstate-bin)):
 
 ```
-cargo install --locked --git https://github.com/flaviomilan/hyprstate
+yay -S hyprstate-bin    # prebuilt binary
+yay -S hyprstate        # or build from source
+```
+
+**Any Linux** (x86_64 or aarch64, static binary, checksum verified, no root):
+
+```
+curl -fsSL https://raw.githubusercontent.com/flaviomilan/hyprstate/main/install.sh | sh
+```
+
+It installs to `~/.local/bin`; set `HYPRSTATE_INSTALL_DIR` to change that and
+`HYPRSTATE_VERSION` to pin a release.
+
+**With Cargo:**
+
+```
+cargo binstall hyprstate          # downloads the release binary
+cargo install --locked hyprstate  # builds from source (recent stable Rust)
+```
+
+**By hand:** download `hyprstate-vX.Y.Z-<arch>-unknown-linux-musl.tar.gz` and its
+`.sha256` from [Releases](https://github.com/flaviomilan/hyprstate/releases), then:
+
+```
+sha256sum -c hyprstate-*.tar.gz.sha256
+gh attestation verify hyprstate-*.tar.gz -R flaviomilan/hyprstate   # built by this repo's CI
+tar -xzf hyprstate-*.tar.gz
 ```
 
 ## Usage

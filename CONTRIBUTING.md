@@ -47,6 +47,22 @@ always with `--dry-run` first.
   style: `feat: …`, `fix: …`, `docs: …`.
 - Keep PRs focused on one change.
 
+## Releases
+
+Releases are automated with [release-plz](https://release-plz.dev):
+
+1. Every merge to `main` opens or updates a `chore: release vX.Y.Z` PR. The
+   version bump and `CHANGELOG.md` come from the Conventional Commits titles
+   (`feat` → minor, `fix` → patch while below 1.0).
+2. Merging that PR publishes the crate to crates.io, tags `vX.Y.Z` and creates
+   the GitHub release. `.github/workflows/release.yml` then builds static
+   binaries for x86_64 and aarch64, attaches them with checksums and build
+   provenance, and updates the `hyprstate` and `hyprstate-bin` AUR packages
+   from `packaging/aur/`.
+
+Never create or move `v*` tags by hand; a ruleset blocks it. To try the build
+without publishing, run the *Build release* workflow manually.
+
 ## License
 
 By contributing, you agree that your contributions are dual licensed under
