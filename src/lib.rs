@@ -1,0 +1,8 @@
+pub mod cli;
+pub mod config;
+pub mod diff;
+pub mod discovery;
+pub mod hyprland;
+pub mod policy;
+pub mod restore;
+pub mod snapshot;

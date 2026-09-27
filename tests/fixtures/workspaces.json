@@ -1,0 +1,38 @@
+[
+  {
+    "id": 1,
+    "name": "1",
+    "monitor": "DP-1",
+    "monitorID": 0,
+    "windows": 2,
+    "hasfullscreen": false,
+    "lastwindow": "0x58e4d01efd90",
+    "lastwindowtitle": "redacted",
+    "ispersistent": false,
+    "tiledLayout": "dwindle"
+  },
+  {
+    "id": 2,
+    "name": "2",
+    "monitor": "DP-1",
+    "monitorID": 0,
+    "windows": 1,
+    "hasfullscreen": false,
+    "lastwindow": "0x58e4d0140850",
+    "lastwindowtitle": "redacted",
+    "ispersistent": false,
+    "tiledLayout": "dwindle"
+  },
+  {
+    "id": 3,
+    "name": "3",
+    "monitor": "DP-1",
+    "monitorID": 0,
+    "windows": 1,
+    "hasfullscreen": false,
+    "lastwindow": "0x58e4d0151000",
+    "lastwindowtitle": "redacted",
+    "ispersistent": false,
+    "tiledLayout": "dwindle"
+  }
+]
