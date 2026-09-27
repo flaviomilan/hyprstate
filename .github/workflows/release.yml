@@ -87,9 +87,11 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
 
+  # Opt-in: set the repository variable AUR_ENABLED=true once the AUR
+  # secrets exist.
   aur:
     needs: upload
-    if: inputs.publish
+    if: inputs.publish && vars.AUR_ENABLED == 'true'
     runs-on: ubuntu-latest
     strategy:
       matrix:

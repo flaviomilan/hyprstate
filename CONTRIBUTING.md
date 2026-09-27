@@ -57,8 +57,9 @@ Releases are automated with [release-plz](https://release-plz.dev):
 2. Merging that PR publishes the crate to crates.io, tags `vX.Y.Z` and creates
    the GitHub release. `.github/workflows/release.yml` then builds static
    binaries for x86_64 and aarch64, attaches them with checksums and build
-   provenance, and updates the `hyprstate` and `hyprstate-bin` AUR packages
-   from `packaging/aur/`.
+   provenance. When the repository variable `AUR_ENABLED` is `true`, it also
+   updates the `hyprstate` and `hyprstate-bin` AUR packages from
+   `packaging/aur/`.
 
 Never create or move `v*` tags by hand; a ruleset blocks it. To try the build
 without publishing, run the *Build release* workflow manually.
