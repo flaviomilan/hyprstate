@@ -15,21 +15,27 @@ signals for apps that aren't recognized yet are all welcome.
 ```
 cargo fmt
 cargo clippy --all-targets -- -D warnings
-cargo test          # unit tests plus executor tests against a fake compositor
+cargo test
 ```
 
-CI runs the same three commands, plus a coverage check: line coverage must
-stay above the floor set in `.github/workflows/ci.yml` (`--fail-under-lines`).
-New code should come with tests; to see what is uncovered locally:
+CI runs the same three commands, plus a coverage check: **every line and every
+function must be covered** (`cargo llvm-cov --fail-under-lines 100
+--fail-under-functions 100`), with no files excluded. New code comes with the
+tests that exercise it, error paths included. To see what is uncovered:
 
 ```
 cargo install cargo-llvm-cov
 cargo llvm-cov --open   # HTML report in the browser
 ```
 
-When a PR raises coverage, bump the floor in the same PR. Tests never talk to a real Hyprland; they use
-the fixtures in `tests/fixtures/` (real `hyprctl -j` output with titles
-redacted). If you add fixtures, redact titles, paths and anything personal.
+Tests never talk to a real Hyprland:
+
+- Unit tests live next to the code and use the fixtures in `tests/fixtures/`
+  (real `hyprctl -j` output with titles redacted). If you add fixtures, redact
+  titles, paths and anything personal.
+- `tests/cli.rs` runs the real binary against a fake Hyprland that listens on
+  the same Unix sockets, in a temporary `$HOME`. Use it for anything that
+  depends on the environment, the sockets or the command line.
 
 When you change discovery, restore or worksets, also try it on a real session,
 always with `--dry-run` first.

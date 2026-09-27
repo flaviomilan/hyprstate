@@ -22,3 +22,17 @@ fn is_executable(p: &std::path::Path) -> bool {
     use std::os::unix::fs::PermissionsExt;
     std::fs::metadata(p).is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn which_accepts_paths() {
+        assert_eq!(which("/bin/sh"), Some(PathBuf::from("/bin/sh")));
+        assert_eq!(which("/nonexistent/hyprstate"), None);
+        assert_eq!(which("/etc/passwd"), None);
+        assert!(which("sh").is_some());
+        assert_eq!(which("hyprstate-definitely-not-installed"), None);
+    }
+}

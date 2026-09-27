@@ -399,19 +399,22 @@ fn initial_report(item: &PlanItem) -> ItemReport {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::discovery::resolve::{Confidence, LaunchSpec, LaunchVia};
     use crate::hyprland::models::{LiveState, WorkspaceRef};
     use crate::policy::exclusions::Exclusions;
-    use crate::restore::planner::{PlanInput, plan};
+    use crate::restore::matcher::Strategy;
+    use crate::restore::planner::{PlanInput, Summary, label, plan};
     use crate::snapshot::capture::build_snapshot_at;
     use crate::snapshot::capture::tests::{fixture_discovery, fixture_live};
     use jiff::Timestamp;
-    use std::cell::RefCell;
+    use std::cell::{Cell, RefCell};
     use std::collections::VecDeque;
     use std::rc::Rc;
 
     /// In-memory Hyprland: `Exec` spawns a window from a template (or none),
     /// window commands mutate state, and every spawn emits `openwindow`.
     type Spawner = Box<dyn Fn(&[String]) -> Option<Client>>;
+    type Rejecter = Box<dyn Fn(&Command) -> Option<String>>;
 
     struct Fake {
         live: RefCell<LiveState>,
@@ -419,10 +422,19 @@ mod tests {
         spawn: Spawner,
         next_addr: RefCell<u64>,
         log: RefCell<Vec<Command>>,
+        /// `clients()` answers this many more times, then fails.
+        clients_left: Cell<usize>,
+        /// Window commands succeed without changing anything.
+        frozen: Cell<bool>,
+        /// Per-command error, checked before anything else.
+        reject: Rejecter,
     }
 
     impl Compositor for Fake {
         fn clients(&self) -> anyhow::Result<Vec<Client>> {
+            let left = self.clients_left.get();
+            anyhow::ensure!(left > 0, "compositor went away");
+            self.clients_left.set(left - 1);
             Ok(self.live.borrow().clients.clone())
         }
         fn live_state(&self) -> anyhow::Result<LiveState> {
@@ -432,6 +444,19 @@ mod tests {
             let mut out = Vec::new();
             for c in commands {
                 self.log.borrow_mut().push(c.clone());
+                if let Command::MoveWorkspaceToMonitor { monitor, .. } = c
+                    && monitor == "GONE"
+                {
+                    anyhow::bail!("socket closed");
+                }
+                if let Some(e) = (self.reject)(c) {
+                    out.push(Err(e));
+                    continue;
+                }
+                if self.frozen.get() && !matches!(c, Command::Exec { .. }) {
+                    out.push(Ok(()));
+                    continue;
+                }
                 let mut live = self.live.borrow_mut();
                 let find = |a: &str, live: &mut LiveState| {
                     live.clients.iter_mut().position(|c| c.address == a)
@@ -496,7 +521,11 @@ mod tests {
 
     impl EventSource for FakeEvents {
         fn next_before(&mut self, deadline: Instant) -> anyhow::Result<Option<Event>> {
-            if let Some(e) = self.0.borrow_mut().pop_front() {
+            let next = self.0.borrow_mut().pop_front();
+            if let Some(Event::CloseWindow { address }) = next {
+                anyhow::bail!("event socket closed after {address}");
+            }
+            if let Some(e) = next {
                 return Ok(Some(e));
             }
             std::thread::sleep(
@@ -536,11 +565,36 @@ mod tests {
             spawn: Box::new(spawn),
             next_addr: RefCell::new(0),
             log: RefCell::new(Vec::new()),
+            clients_left: Cell::new(usize::MAX),
+            frozen: Cell::new(false),
+            reject: Box::new(|_| None),
         };
         (snap, fake)
     }
 
+    /// Logs on, so the fields of `info!`/`warn!` events are evaluated too.
+    fn logging() -> tracing::subscriber::DefaultGuard {
+        tracing::subscriber::set_default(
+            tracing_subscriber::fmt()
+                .with_max_level(tracing::Level::DEBUG)
+                .with_test_writer()
+                .finish(),
+        )
+    }
+
+    fn run_plan(p: &Plan, snap: &Snapshot, fake: &Fake) -> Report {
+        let _log = logging();
+        let d = fixture_discovery();
+        let ex = Executor {
+            compositor: fake,
+            discovery: &d,
+            options: opts(),
+        };
+        ex.run(p, snap, &mut FakeEvents(fake.events.clone()))
+    }
+
     fn execute(snap: &Snapshot, fake: &Fake, runnable: &dyn Fn(&str) -> bool) -> Report {
+        let _log = logging();
         let d = fixture_discovery();
         let live = fake.live_state().unwrap();
         let wins = d.windows(&live.clients);
@@ -656,5 +710,288 @@ mod tests {
                 .iter()
                 .any(|c| matches!(c, Command::Exec { .. }))
         );
+    }
+
+    fn item(snap: &Snapshot, i: usize, action: Action) -> PlanItem {
+        let r = &snap.windows[i];
+        PlanItem {
+            key: r.key,
+            label: label(r),
+            placement: Placement::of(r),
+            action,
+        }
+    }
+
+    fn plan_of(items: Vec<PlanItem>, workspace_commands: Vec<Command>) -> Plan {
+        Plan {
+            snapshot: "s".into(),
+            items,
+            workspace_commands,
+            summary: Summary::default(),
+        }
+    }
+
+    fn reuse(address: &str, commands: Vec<Command>, ambiguous: bool) -> Action {
+        Action::Reuse {
+            address: address.into(),
+            strategy: Strategy::Identity,
+            confidence: Confidence::High,
+            ambiguous,
+            commands,
+        }
+    }
+
+    fn launch(program: &str) -> Action {
+        Action::Launch {
+            spec: LaunchSpec {
+                argv: vec![program.into()],
+                cwd: Some("/nonexistent/dir".into()),
+                via: LaunchVia::Cmdline,
+            },
+        }
+    }
+
+    fn move_to(address: &str, ws: &str) -> Command {
+        Command::MoveToWorkspace {
+            address: address.into(),
+            workspace: ws.into(),
+        }
+    }
+
+    fn to_monitor(monitor: &str) -> Command {
+        Command::MoveWorkspaceToMonitor {
+            workspace: "1".into(),
+            monitor: monitor.into(),
+        }
+    }
+
+    #[test]
+    fn default_options() {
+        let o = ExecOptions::default();
+        assert_eq!(o.timeout, Duration::from_secs(30));
+        assert!(o.settle < o.rescan);
+    }
+
+    #[test]
+    fn every_kind_of_failure_is_reported_per_item() {
+        let (snap, mut fake) = scenario(|_| true, |_| None);
+        fake.reject = Box::new(|c| {
+            matches!(c, Command::MoveWorkspaceToMonitor { monitor, .. } if monitor == "HDMI-A-1")
+                .then(|| "no such monitor".into())
+        });
+        let p = plan_of(
+            vec![
+                item(
+                    &snap,
+                    0,
+                    reuse("0xgone", vec![move_to("0xgone", "2")], true),
+                ),
+                item(
+                    &snap,
+                    1,
+                    Action::Unresolved {
+                        reason: "why".into(),
+                    },
+                ),
+                item(
+                    &snap,
+                    2,
+                    Action::Excluded {
+                        reason: "policy".into(),
+                    },
+                ),
+                item(&snap, 3, launch("fail")),
+            ],
+            vec![to_monitor("DP-1"), to_monitor("HDMI-A-1")],
+        );
+        let r = run_plan(&p, &snap, &fake);
+        let outcomes: Vec<Outcome> = r.items.iter().map(|i| i.outcome).collect();
+        assert_eq!(
+            outcomes,
+            [
+                Outcome::Failed,
+                Outcome::Unresolved,
+                Outcome::Excluded,
+                Outcome::SpawnFailed
+            ]
+        );
+        assert_eq!(
+            r.items[0].detail.as_deref(),
+            Some("move → workspace 2: no such window")
+        );
+        assert_eq!(
+            r.items[0].warnings,
+            ["multiple candidate windows; picked one"]
+        );
+        assert_eq!(r.items[1].detail.as_deref(), Some("why"));
+        assert!(
+            r.items[3]
+                .detail
+                .as_deref()
+                .unwrap()
+                .ends_with("spawn error")
+        );
+        assert_eq!(
+            r.workspace_errors,
+            ["workspace 1 → monitor HDMI-A-1: no such monitor"]
+        );
+        assert_eq!(r.failures(), 3);
+    }
+
+    #[test]
+    fn unreachable_compositor_fails_workspace_commands() {
+        let (snap, fake) = scenario(|_| true, |_| None);
+        let r = run_plan(&plan_of(vec![], vec![to_monitor("GONE")]), &snap, &fake);
+        assert_eq!(r.workspace_errors, ["socket closed"]);
+    }
+
+    #[test]
+    fn placement_that_does_not_stick_is_retried_then_reported() {
+        let (snap, fake) = scenario(|_| true, |_| None);
+        fake.live.borrow_mut().clients[2].workspace = WorkspaceRef {
+            id: 5,
+            name: "5".into(),
+        };
+        fake.frozen.set(true);
+        let r = execute(&snap, &fake, &|_| true);
+        let foot = r.items.iter().find(|i| i.label == "foot").unwrap();
+        assert_eq!(foot.outcome, Outcome::Placed);
+        assert_eq!(foot.warnings, ["did not reach: move → workspace 3"]);
+        let moves = fake
+            .log
+            .borrow()
+            .iter()
+            .filter(|c| matches!(c, Command::MoveToWorkspace { .. }))
+            .count();
+        assert_eq!(moves, 2, "applied, then re-applied once");
+    }
+
+    #[test]
+    fn verification_tolerates_vanished_windows_and_a_lost_compositor() {
+        let (snap, fake) = scenario(|_| true, |_| None);
+        fake.frozen.set(true);
+        let p = plan_of(
+            vec![item(
+                &snap,
+                0,
+                reuse("0xghost", vec![move_to("0xghost", "2")], false),
+            )],
+            vec![],
+        );
+        let r = run_plan(&p, &snap, &fake);
+        assert_eq!(r.items[0].outcome, Outcome::Placed);
+        assert!(r.items[0].warnings.is_empty());
+
+        // Only the initial query succeeds.
+        fake.clients_left.set(1);
+        let r = run_plan(&p, &snap, &fake);
+        assert_eq!(r.items[0].outcome, Outcome::Placed);
+    }
+
+    #[test]
+    fn event_and_query_failures_fall_back_to_polling() {
+        let (snap, fake) = scenario(|c| c.class != "foot", |_| None);
+        fake.events.borrow_mut().extend([
+            Event::Other {
+                name: "workspace".into(),
+                data: "1".into(),
+            },
+            Event::CloseWindow {
+                address: "0x1".into(),
+            },
+        ]);
+        fake.clients_left.set(1);
+        let p = plan_of(vec![item(&snap, 2, launch("foot"))], vec![]);
+        let r = run_plan(&p, &snap, &fake);
+        assert_eq!(r.items[0].outcome, Outcome::TimedOut);
+        assert!(fake.events.borrow().is_empty());
+    }
+
+    #[test]
+    fn launched_window_that_cannot_be_placed_fails() {
+        let (mut snap, mut fake) = scenario(|c| c.class != "foot", spawn_like("foot", 147550));
+        snap.windows[2].floating = true;
+        fake.reject =
+            Box::new(|c| matches!(c, Command::SetFloating { .. }).then(|| "cannot float".into()));
+        let r = execute(&snap, &fake, &|_| true);
+        let foot = r.items.iter().find(|i| i.label == "foot").unwrap();
+        assert_eq!(foot.outcome, Outcome::Failed);
+        assert_eq!(foot.detail.as_deref(), Some("float: cannot float"));
+    }
+
+    #[test]
+    fn indistinguishable_launches_are_flagged_and_strays_left_alone() {
+        let (mut snap, fake) = scenario(
+            |_| false,
+            |argv: &[String]| match argv[0].as_str() {
+                "foot" => spawn_like("foot", 147550)(argv),
+                _ => {
+                    let mut c = spawn_like("foot", 0)(argv).unwrap();
+                    c.class = "stray".into();
+                    c.initial_class = "stray".into();
+                    Some(c)
+                }
+            },
+        );
+        for (key, ws) in [(10, "x"), (11, "y"), (12, "z")] {
+            let mut r = snap.windows[2].clone();
+            r.key = key;
+            r.workspace = WorkspaceRef {
+                id: 0,
+                name: ws.into(),
+            };
+            snap.windows.push(r);
+        }
+        let p = plan_of(
+            vec![
+                item(&snap, 4, launch("foot")),
+                item(&snap, 5, launch("foot")),
+                item(&snap, 6, launch("stray")),
+            ],
+            vec![],
+        );
+        let r = run_plan(&p, &snap, &fake);
+        let outcomes: Vec<Outcome> = r.items.iter().map(|i| i.outcome).collect();
+        assert_eq!(
+            outcomes,
+            [Outcome::Launched, Outcome::Launched, Outcome::TimedOut]
+        );
+        for i in &r.items[..2] {
+            assert!(
+                i.warnings
+                    .contains(&"multiple candidate windows; picked one".into())
+            );
+        }
+    }
+
+    #[test]
+    fn launched_floating_window_gets_its_geometry() {
+        let (mut snap, fake) = scenario(|c| c.class != "foot", spawn_like("foot", 147550));
+        let foot = &mut snap.windows[2];
+        foot.floating = true;
+        foot.at = [10, 20];
+        foot.size = [300, 200];
+        let r = execute(&snap, &fake, &|_| true);
+        assert_eq!(r.failures(), 0, "{r:#?}");
+        let live = fake.live.borrow();
+        let c = live.clients.iter().find(|c| c.class == "foot").unwrap();
+        assert!(c.floating);
+        assert_eq!((c.at, c.size), ([10, 20], [300, 200]));
+    }
+
+    #[test]
+    fn unreachable_compositor_fails_the_window() {
+        let (snap, fake) = scenario(|_| true, |_| None);
+        let p = plan_of(
+            vec![item(
+                &snap,
+                0,
+                reuse("0x1", vec![to_monitor("GONE")], false),
+            )],
+            vec![],
+        );
+        let r = run_plan(&p, &snap, &fake);
+        assert_eq!(r.items[0].outcome, Outcome::Failed);
+        assert_eq!(r.items[0].detail.as_deref(), Some("socket closed"));
     }
 }

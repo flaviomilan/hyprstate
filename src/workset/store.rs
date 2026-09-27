@@ -189,4 +189,38 @@ mod tests {
         assert!(store.path("../x").is_err());
         std::fs::remove_dir_all(dir).unwrap();
     }
+
+    #[test]
+    fn missing_and_unreadable_dirs() {
+        let dir = std::env::temp_dir().join(format!("hyprstate-ws-err-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let store = WorksetStore::new(dir.clone());
+        assert_eq!(store.dir(), dir);
+        assert!(store.list().unwrap().is_empty());
+        assert!(store.delete("x").is_err());
+        let ws = Workset {
+            description: None,
+            windows: Vec::new(),
+        };
+        let (_, bak) = store.save("fresh", &ws).unwrap();
+        assert!(bak.is_none());
+        let file = dir.join("fresh.toml");
+        assert!(WorksetStore::new(file).list().is_err());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn filesystem_errors_name_the_path() {
+        let dir = std::env::temp_dir().join(format!("hyprstate-ws-fs-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("d.toml")).unwrap();
+        let store = WorksetStore::new(dir.clone());
+        let err = format!("{:#}", store.load("d").unwrap_err());
+        assert!(err.starts_with("reading "), "{err}");
+        std::fs::write(dir.join("file"), "").unwrap();
+        let blocked = WorksetStore::new(dir.join("file/sub"));
+        let err = format!("{:#}", blocked.create("x").unwrap_err());
+        assert!(err.starts_with("creating "), "{err}");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
 }

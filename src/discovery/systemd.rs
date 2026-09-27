@@ -115,4 +115,11 @@ mod tests {
         );
         assert_eq!(unescape("a\\xé-b"), "a\\xé-b");
     }
+
+    #[test]
+    fn rejects_malformed_units() {
+        // A scope without its random suffix, and too many components.
+        assert_eq!(parse_unit("app-foot.scope"), None);
+        assert_eq!(parse_unit("app-a-b-c-1234.scope"), None);
+    }
 }

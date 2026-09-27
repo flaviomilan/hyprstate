@@ -120,4 +120,18 @@ mod tests {
         let wa = parse_class("chrome-web.whatsapp.com__-Default").unwrap();
         assert_eq!(find_desktop(&idx, &wa).unwrap().id, "WhatsApp");
     }
+
+    #[test]
+    fn plain_browser_classes_are_not_web_apps() {
+        assert_eq!(parse_class("chrome-foo-Default"), None);
+    }
+
+    #[test]
+    fn url_without_path_or_host() {
+        assert_eq!(
+            class_name_for_url("https://example.com").as_deref(),
+            Some("example.com__")
+        );
+        assert_eq!(class_name_for_url("https:///path"), None);
+    }
 }

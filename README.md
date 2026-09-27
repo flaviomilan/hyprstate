@@ -1,6 +1,7 @@
 # hyprstate
 
 [![CI](https://github.com/flaviomilan/hyprstate/actions/workflows/ci.yml/badge.svg)](https://github.com/flaviomilan/hyprstate/actions/workflows/ci.yml)
+[![Coverage: 100%](https://img.shields.io/badge/coverage-100%25-brightgreen.svg)](CONTRIBUTING.md#development)
 [![License: MIT OR Apache-2.0](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](#license)
 [![Hyprland 0.55+](https://img.shields.io/badge/Hyprland-0.55%2B-58e1ff.svg)](https://hyprland.org)
 
@@ -198,8 +199,9 @@ These are deliberate non-goals, listed to prevent scope creep:
 ## Development
 
 ```
-cargo test          # unit tests plus executor tests against a fake compositor
+cargo test          # unit tests, plus the CLI against a fake Hyprland
 cargo clippy --all-targets
+cargo llvm-cov      # coverage; CI requires 100% of lines and functions
 ```
 
 `tests/fixtures/` contains real `hyprctl -j` output, with titles redacted.

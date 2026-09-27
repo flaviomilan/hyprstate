@@ -273,4 +273,109 @@ mod tests {
             r#"exec [workspace 2 silent] cd '/home/me/my proj' && exec omarchy-launch-webapp 'https://x.com/a b"c'"#
         );
     }
+
+    fn all() -> Vec<Command> {
+        vec![
+            Command::MoveToWorkspace {
+                address: A.into(),
+                workspace: "2".into(),
+            },
+            Command::SetFloating {
+                address: A.into(),
+                floating: true,
+            },
+            Command::SetFloating {
+                address: A.into(),
+                floating: false,
+            },
+            Command::MoveExact {
+                address: A.into(),
+                x: 10,
+                y: 20,
+            },
+            Command::ResizeExact {
+                address: A.into(),
+                w: 300,
+                h: 200,
+            },
+            Command::SetPinned {
+                address: A.into(),
+                pinned: true,
+            },
+            Command::SetPinned {
+                address: A.into(),
+                pinned: false,
+            },
+            Command::Fullscreen {
+                address: A.into(),
+                internal: 2,
+                client: 2,
+            },
+            Command::MoveWorkspaceToMonitor {
+                workspace: "name:web".into(),
+                monitor: "DP-1".into(),
+            },
+            Command::Exec {
+                argv: vec!["echo".into(), "a\\b\n\r\0".into()],
+                cwd: None,
+                workspace: None,
+            },
+        ]
+    }
+
+    #[test]
+    fn every_command_renders_in_both_dialects() {
+        let human: Vec<String> = all().iter().map(ToString::to_string).collect();
+        assert_eq!(
+            human,
+            [
+                "move → workspace 2",
+                "float",
+                "tile",
+                "position 10,20",
+                "size 300x200",
+                "pin",
+                "unpin",
+                "fullscreen state 2",
+                "workspace name:web → monitor DP-1",
+                "exec echo 'a\\b\n\r\0'",
+            ]
+        );
+        let lua: Vec<String> = all()
+            .iter()
+            .map(|c| c.render(Dialect::Lua)[0].clone())
+            .collect();
+        assert_eq!(
+            lua,
+            [
+                r#"hl.dsp.window.move({ workspace = "2", follow = false, window = "address:0x58e4d02c5480" })"#,
+                r#"hl.dsp.window.float({ action = "enable", window = "address:0x58e4d02c5480" })"#,
+                r#"hl.dsp.window.float({ action = "disable", window = "address:0x58e4d02c5480" })"#,
+                r#"hl.dsp.window.move({ x = 10, y = 20, window = "address:0x58e4d02c5480" })"#,
+                r#"hl.dsp.window.resize({ x = 300, y = 200, window = "address:0x58e4d02c5480" })"#,
+                r#"hl.dsp.window.pin({ action = "enable", window = "address:0x58e4d02c5480" })"#,
+                r#"hl.dsp.window.pin({ action = "disable", window = "address:0x58e4d02c5480" })"#,
+                r#"hl.dsp.window.fullscreen_state({ internal = 2, client = 2, window = "address:0x58e4d02c5480" })"#,
+                r#"hl.dsp.workspace.move({ workspace = "name:web", monitor = "DP-1" })"#,
+                r#"hl.dsp.exec_cmd("echo 'a\\b\n\r\0'")"#,
+            ]
+        );
+        let legacy: Vec<Vec<String>> = all().iter().map(|c| c.render(Dialect::Legacy)).collect();
+        assert_eq!(
+            legacy.concat(),
+            [
+                "movetoworkspacesilent 2,address:0x58e4d02c5480",
+                "setfloating address:0x58e4d02c5480",
+                "settiled address:0x58e4d02c5480",
+                "movewindowpixel exact 10 20,address:0x58e4d02c5480",
+                "resizewindowpixel exact 300 200,address:0x58e4d02c5480",
+                "pin address:0x58e4d02c5480",
+                "pin address:0x58e4d02c5480",
+                "focuswindow address:0x58e4d02c5480",
+                "fullscreenstate 2 2",
+                "moveworkspacetomonitor name:web DP-1",
+                "exec echo 'a\\b\n\r\0'",
+            ]
+        );
+    }
 }

@@ -118,3 +118,17 @@ impl Snapshot {
         PathBuf::from(format!("{}.json", self.name))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn named_workspaces_are_targeted_by_name() {
+        let ws = WorkspaceRef {
+            id: -3,
+            name: "web".into(),
+        };
+        assert_eq!(workspace_target(&ws), "name:web");
+    }
+}

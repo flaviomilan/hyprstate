@@ -131,4 +131,17 @@ mod tests {
         );
         assert!(parse_event("garbage").is_none());
     }
+
+    #[test]
+    fn other_events_and_prefixed_addresses() {
+        assert_eq!(
+            parse_event("workspace>>3").unwrap(),
+            Event::Other {
+                name: "workspace".into(),
+                data: "3".into()
+            }
+        );
+        assert_eq!(normalize_address(" 0xabc "), "0xabc");
+        assert!(parse_event("openwindow>>abc,2").is_none());
+    }
 }

@@ -231,4 +231,83 @@ mod tests {
         assert!(validate_name(".hidden").is_err());
         assert_eq!(default_name().len(), 19);
     }
+
+    #[test]
+    fn errors_are_reported_not_fatal() {
+        let dir = tempdir("errors");
+        let store = Store::new(dir.clone());
+        assert_eq!(store.dir(), dir);
+        assert!(store.list().unwrap().0.is_empty());
+        let err = store.latest().unwrap_err().to_string();
+        assert!(err.starts_with("no snapshots in"), "{err}");
+        assert!(
+            store
+                .load("nope")
+                .unwrap_err()
+                .to_string()
+                .contains("not found")
+        );
+
+        let live = fixture_live();
+        let snap = build_snapshot_at(
+            "ok".into(),
+            Timestamp::UNIX_EPOCH,
+            &live,
+            &fixture_discovery().windows(&live.clients),
+        );
+        store.save(&snap, false).unwrap();
+        let err = store.save(&snap, false).unwrap_err().to_string();
+        assert!(err.contains("'ok' already exists"), "{err}");
+        std::fs::write(dir.join("old.json"), r#"{"schema_version": 0}"#).unwrap();
+        std::fs::write(dir.join(".hidden.json"), "{}").unwrap();
+        std::fs::write(dir.join("notes.txt"), "").unwrap();
+        let (ok, bad) = store.list().unwrap();
+        assert_eq!(ok.len(), 1);
+        assert_eq!(bad.len(), 1);
+        assert!(format!("{:#}", bad[0].1).contains("unsupported schema_version 0"));
+
+        // By path: anything with a slash or a .json suffix.
+        let by_path = dir.join("ok.json");
+        assert_eq!(store.load(by_path.to_str().unwrap()).unwrap().name, "ok");
+
+        // A file where the directory should be.
+        let file = dir.join("notes.txt");
+        assert!(Store::new(file).list().is_err());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn filesystem_errors_name_the_path() {
+        let dir = tempdir("fs-errors");
+        let store = Store::new(dir.clone());
+        let live = fixture_live();
+        let snap = build_snapshot_at(
+            "x".into(),
+            Timestamp::UNIX_EPOCH,
+            &live,
+            &fixture_discovery().windows(&live.clients),
+        );
+        fn err<T>(r: Result<T>) -> String {
+            format!("{:#}", r.err().unwrap())
+        }
+
+        // The temp file's name is taken by a directory.
+        std::fs::create_dir_all(dir.join(".x.tmp")).unwrap();
+        assert!(err(store.save(&snap, false)).starts_with("writing "));
+        // The store directory's place is taken by a file.
+        std::fs::write(dir.join("file"), "").unwrap();
+        let blocked = Store::new(dir.join("file/sub"));
+        assert!(err(blocked.save(&snap, false)).starts_with("creating "));
+        // A directory where a snapshot should be.
+        std::fs::create_dir_all(dir.join("d.json")).unwrap();
+        assert!(err(store.load("d")).starts_with("reading "));
+        // Right schema version, wrong shape.
+        std::fs::write(
+            dir.join("v.json"),
+            format!(r#"{{"schema_version": {SCHEMA_VERSION}}}"#),
+        )
+        .unwrap();
+        assert!(err(store.load("v")).starts_with("parsing "));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
 }

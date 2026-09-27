@@ -198,9 +198,8 @@ fn run(cli: Cli) -> Result<ExitCode> {
             let live = capture_live(&discovery, name.unwrap_or_else(default_name))?;
             let path = store.save(&live.snapshot, force)?;
             if json {
-                print_json(
-                    &serde_json::json!({ "name": live.snapshot.name, "path": path, "windows": live.snapshot.windows.len(), "excluded": live.snapshot.excluded_count }),
-                )?;
+                let saved = serde_json::json!({ "name": live.snapshot.name, "path": path, "windows": live.snapshot.windows.len(), "excluded": live.snapshot.excluded_count });
+                print_json(&saved)?;
             } else {
                 print!("{}", render::saved(&live.snapshot, &path));
             }

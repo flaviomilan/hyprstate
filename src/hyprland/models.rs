@@ -167,4 +167,20 @@ mod tests {
         let v: Version = serde_json::from_str(&fixture("version")).unwrap();
         assert_eq!(v.version, "0.56.2");
     }
+
+    #[test]
+    fn named_workspaces_compare_by_name_and_clients_default_to_mapped() {
+        let r = |id, name: &str| WorkspaceRef {
+            id,
+            name: name.into(),
+        };
+        assert!(r(-98, "special:a").same_as(&r(-99, "special:a")));
+        assert!(!r(-98, "special:a").same_as(&r(-98, "special:b")));
+
+        let mut c: serde_json::Value = serde_json::from_str(&fixture("clients")).unwrap();
+        let c = c[0].as_object_mut().unwrap();
+        c.remove("mapped");
+        let client: Client = serde_json::from_value(c.clone().into()).unwrap();
+        assert!(client.mapped);
+    }
 }

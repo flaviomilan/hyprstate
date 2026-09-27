@@ -20,12 +20,6 @@ pub struct ProcessInfo {
     pub env_flatpak_id: Option<String>,
 }
 
-const ENV_ALLOWLIST: &[&str] = &[
-    "GIO_LAUNCHED_DESKTOP_FILE",
-    "GIO_LAUNCHED_DESKTOP_FILE_PID",
-    "FLATPAK_ID",
-];
-
 pub fn read_process(pid: i32) -> ProcessInfo {
     read_process_at(Path::new("/proc"), pid)
 }
@@ -78,14 +72,12 @@ fn read_env_allowlist(path: &Path, pid: i32) -> (Option<String>, Option<String>)
         let Some((k, v)) = entry.split_once('=') else {
             continue;
         };
-        if !ENV_ALLOWLIST.contains(&k) {
-            continue;
-        }
+        // The allowlist: every other variable is skipped unread.
         match k {
             "GIO_LAUNCHED_DESKTOP_FILE" => desktop = Some(v.to_string()),
             "GIO_LAUNCHED_DESKTOP_FILE_PID" => desktop_pid = v.parse::<i32>().ok(),
             "FLATPAK_ID" => flatpak = Some(v.to_string()),
-            _ => {}
+            _ => continue,
         }
     }
     (desktop.filter(|_| desktop_pid == Some(pid)), flatpak)
@@ -109,5 +101,39 @@ mod tests {
     fn missing_process_is_empty_not_error() {
         let info = read_process(i32::MAX);
         assert!(info.exe.is_none() && info.cmdline.is_empty());
+    }
+
+    #[test]
+    fn reads_allowlisted_env_and_child_cwd_from_a_proc_tree() {
+        let root = std::env::temp_dir().join(format!("hyprstate-proc-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let me = root.join("100");
+        std::fs::create_dir_all(me.join("task/100")).unwrap();
+        std::fs::create_dir_all(root.join("101")).unwrap();
+        std::fs::write(me.join("task/100/children"), "101 102\n").unwrap();
+        std::os::unix::fs::symlink("/home/me/proj", root.join("101/cwd")).unwrap();
+        let mut env = Vec::new();
+        for e in [
+            &b"PATH=/usr/bin"[..],
+            b"NOT_A_PAIR",
+            b"\xff\xfe=bad utf8",
+            b"GIO_LAUNCHED_DESKTOP_FILE=/apps/foot.desktop",
+            b"GIO_LAUNCHED_DESKTOP_FILE_PID=100",
+            b"FLATPAK_ID=org.x.Y",
+        ] {
+            env.extend_from_slice(e);
+            env.push(0);
+        }
+        std::fs::write(me.join("environ"), &env).unwrap();
+
+        let info = read_process_at(&root, 100);
+        assert_eq!(info.env_desktop_file, Some("/apps/foot.desktop".into()));
+        assert_eq!(info.env_flatpak_id.as_deref(), Some("org.x.Y"));
+        assert_eq!(info.child_cwd, Some("/home/me/proj".into()));
+
+        // A process whose environment cannot be read has no launch hints.
+        let info = read_process_at(&root, 101);
+        assert_eq!(info.env_desktop_file, None);
+        std::fs::remove_dir_all(root).unwrap();
     }
 }
