@@ -18,7 +18,16 @@ cargo clippy --all-targets -- -D warnings
 cargo test          # unit tests plus executor tests against a fake compositor
 ```
 
-CI runs the same three commands. Tests never talk to a real Hyprland; they use
+CI runs the same three commands, plus a coverage check: line coverage must
+stay above the floor set in `.github/workflows/ci.yml` (`--fail-under-lines`).
+New code should come with tests; to see what is uncovered locally:
+
+```
+cargo install cargo-llvm-cov
+cargo llvm-cov --open   # HTML report in the browser
+```
+
+When a PR raises coverage, bump the floor in the same PR. Tests never talk to a real Hyprland; they use
 the fixtures in `tests/fixtures/` (real `hyprctl -j` output with titles
 redacted). If you add fixtures, redact titles, paths and anything personal.
 

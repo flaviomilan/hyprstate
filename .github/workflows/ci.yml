@@ -45,8 +45,16 @@ jobs:
         with:
           tool: cargo-llvm-cov
       - uses: Swatinem/rust-cache@v2
-      - run: cargo llvm-cov --locked --lcov --output-path lcov.info
+      # Raise the floor as coverage grows, never lower it. ipc.rs and main.rs
+      # need a live Hyprland socket, so they're left out of the measurement.
+      - run: >
+          cargo llvm-cov --locked
+          --ignore-filename-regex '(src/main\.rs|src/hyprland/ipc\.rs)$'
+          --fail-under-lines 74
+          --lcov --output-path lcov.info
       - name: Report
+        if: ${{ !cancelled() }}
         run: |
-          cargo llvm-cov report --summary-only | tee summary.txt
+          cargo llvm-cov report --summary-only \
+            --ignore-filename-regex '(src/main\.rs|src/hyprland/ipc\.rs)$' | tee summary.txt
           { echo '```'; cat summary.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
