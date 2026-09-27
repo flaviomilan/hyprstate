@@ -20,10 +20,14 @@ use crate::snapshot::capture::{Discovery, ResolvedWindow, build_snapshot};
 use crate::snapshot::model::Snapshot;
 use crate::snapshot::storage::{Store, default_name};
 use crate::workset::store::WorksetStore;
-use crate::workset::{WorkspaceSpec, Workset};
+use crate::workset::{Workset, WorkspaceSpec};
 
 #[derive(Parser)]
-#[command(name = "hyprstate", version, about = "Capture, inspect, diff and restore Hyprland desktops")]
+#[command(
+    name = "hyprstate",
+    version,
+    about = "Capture, inspect, diff and restore Hyprland desktops"
+)]
 pub struct Cli {
     /// Config file (default: ~/.config/hyprstate/config.toml)
     #[arg(long, global = true)]
@@ -150,7 +154,9 @@ fn init_logging(format: LogFormat, verbose: u8) {
     };
     let filter = tracing_subscriber::EnvFilter::try_from_env("HYPRSTATE_LOG")
         .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new(format!("hyprstate={level}")));
-    let builder = tracing_subscriber::fmt().with_env_filter(filter).with_writer(std::io::stderr);
+    let builder = tracing_subscriber::fmt()
+        .with_env_filter(filter)
+        .with_writer(std::io::stderr);
     match format {
         LogFormat::Text => builder.without_time().with_target(false).init(),
         LogFormat::Json => builder.json().flatten_event(true).init(),
@@ -175,7 +181,12 @@ fn capture_live(discovery: &Discovery, name: String) -> Result<Live> {
     let state = socket.live_state()?;
     let windows = discovery.windows(&state.clients);
     let snapshot = build_snapshot(name, &state, &windows);
-    Ok(Live { socket, snapshot, windows, state })
+    Ok(Live {
+        socket,
+        snapshot,
+        windows,
+        state,
+    })
 }
 
 fn run(cli: Cli) -> Result<ExitCode> {
@@ -187,7 +198,9 @@ fn run(cli: Cli) -> Result<ExitCode> {
             let live = capture_live(&discovery, name.unwrap_or_else(default_name))?;
             let path = store.save(&live.snapshot, force)?;
             if json {
-                print_json(&serde_json::json!({ "name": live.snapshot.name, "path": path, "windows": live.snapshot.windows.len(), "excluded": live.snapshot.excluded_count }))?;
+                print_json(
+                    &serde_json::json!({ "name": live.snapshot.name, "path": path, "windows": live.snapshot.windows.len(), "excluded": live.snapshot.excluded_count }),
+                )?;
             } else {
                 print!("{}", render::saved(&live.snapshot, &path));
             }
@@ -207,7 +220,11 @@ fn run(cli: Cli) -> Result<ExitCode> {
                 print!("{}", render::list(&list, store.dir()));
             }
         }
-        Cmd::Inspect { snapshot, windows, json } => {
+        Cmd::Inspect {
+            snapshot,
+            windows,
+            json,
+        } => {
             let snap = match snapshot {
                 Some(s) => store.load(&s)?,
                 None => capture_live(&Discovery::from_system(&cfg), "live".into())?.snapshot,
@@ -231,7 +248,12 @@ fn run(cli: Cli) -> Result<ExitCode> {
                 print!("{}", render::diff(&d));
             }
         }
-        Cmd::Restore { snapshot, dry_run, json, timeout } => {
+        Cmd::Restore {
+            snapshot,
+            dry_run,
+            json,
+            timeout,
+        } => {
             let snap = match snapshot {
                 Some(s) => store.load(&s)?,
                 None => store.latest()?,
@@ -290,7 +312,11 @@ fn apply(
     } else {
         print!("{}", render::report(&report));
     }
-    Ok(if report.failures() > 0 { ExitCode::from(2) } else { ExitCode::SUCCESS })
+    Ok(if report.failures() > 0 {
+        ExitCode::from(2)
+    } else {
+        ExitCode::SUCCESS
+    })
 }
 
 fn workset(cfg: &Config, cmd: WorksetCmd) -> Result<ExitCode> {
@@ -303,7 +329,10 @@ fn workset(cfg: &Config, cmd: WorksetCmd) -> Result<ExitCode> {
         }
         WorksetCmd::Save { name, workspaces } => {
             store.path(&name)?;
-            let only: Vec<WorkspaceSpec> = workspaces.iter().map(|w| WorkspaceSpec::Name(w.clone())).collect();
+            let only: Vec<WorkspaceSpec> = workspaces
+                .iter()
+                .map(|w| WorkspaceSpec::Name(w.clone()))
+                .collect();
             let discovery = Discovery::from_system(cfg);
             let live = capture_live(&discovery, "live".into())?;
             let (mut ws, skipped) = Workset::from_live(&live.windows, &only);
@@ -315,12 +344,23 @@ fn workset(cfg: &Config, cmd: WorksetCmd) -> Result<ExitCode> {
                 ws.description = old.description;
             }
             let (path, backup) = store.save(&name, &ws)?;
-            print!("{}", render::workset_saved(&name, &ws, &path, backup.as_deref(), &skipped));
+            print!(
+                "{}",
+                render::workset_saved(&name, &ws, &path, backup.as_deref(), &skipped)
+            );
         }
-        WorksetCmd::Open { name, dry_run, json, timeout } => {
+        WorksetCmd::Open {
+            name,
+            dry_run,
+            json,
+            timeout,
+        } => {
             let ws = store.load(&name)?;
             if ws.windows.is_empty() {
-                anyhow::bail!("workset '{name}' has no windows; edit {}", store.path(&name)?.display());
+                anyhow::bail!(
+                    "workset '{name}' has no windows; edit {}",
+                    store.path(&name)?.display()
+                );
             }
             let discovery = Discovery::from_system(cfg);
             let snap = ws.to_snapshot(&name, &discovery.index);

@@ -58,7 +58,10 @@ pub enum Outcome {
 
 impl Outcome {
     pub fn is_failure(self) -> bool {
-        matches!(self, Self::SpawnFailed | Self::TimedOut | Self::Failed | Self::Unresolved)
+        matches!(
+            self,
+            Self::SpawnFailed | Self::TimedOut | Self::Failed | Self::Unresolved
+        )
     }
 }
 
@@ -121,10 +124,20 @@ impl Executor<'_> {
 
         // 1. Reused windows.
         for (i, item) in plan.items.iter().enumerate() {
-            let Action::Reuse { address, commands, ambiguous, .. } = &item.action else { continue };
+            let Action::Reuse {
+                address,
+                commands,
+                ambiguous,
+                ..
+            } = &item.action
+            else {
+                continue;
+            };
             reports[i].address = Some(address.clone());
             if *ambiguous {
-                reports[i].warnings.push("multiple candidate windows; picked one".into());
+                reports[i]
+                    .warnings
+                    .push("multiple candidate windows; picked one".into());
             }
             if commands.is_empty() {
                 continue;
@@ -146,7 +159,9 @@ impl Executor<'_> {
         // 2. Launches.
         let mut pending: Vec<Pending> = Vec::new();
         for (i, item) in plan.items.iter().enumerate() {
-            let Action::Launch { spec } = &item.action else { continue };
+            let Action::Launch { spec } = &item.action else {
+                continue;
+            };
             let cwd = spec.cwd.clone().filter(|d| d.is_dir());
             let cmd = Command::Exec {
                 argv: spec.argv.clone(),
@@ -162,7 +177,11 @@ impl Executor<'_> {
                         .find(|r| r.key == item.key)
                         .cloned()
                         .expect("plan items come from this snapshot");
-                    pending.push(Pending { item: i, record, launched_at: Instant::now() });
+                    pending.push(Pending {
+                        item: i,
+                        record,
+                        launched_at: Instant::now(),
+                    });
                 }
                 Err(e) => {
                     warn!(event = "failure", window = %item.label, error = %e, "launch failed");
@@ -179,7 +198,9 @@ impl Executor<'_> {
         while !pending.is_empty() && Instant::now() < deadline {
             if dirty {
                 dirty = false;
-                if let Err(e) = self.claim_new(plan, &mut pending, &mut claimed, &mut reports, &mut placed) {
+                if let Err(e) =
+                    self.claim_new(plan, &mut pending, &mut claimed, &mut reports, &mut placed)
+                {
                     warn!(event = "failure", error = %e, "querying windows failed");
                 }
                 if pending.is_empty() {
@@ -194,7 +215,11 @@ impl Executor<'_> {
                 Ok(None) => dirty = true,
                 Err(e) => {
                     warn!(event = "failure", error = %e, "event socket failed; polling instead");
-                    std::thread::sleep(self.options.rescan.min(deadline.saturating_duration_since(Instant::now())));
+                    std::thread::sleep(
+                        self.options
+                            .rescan
+                            .min(deadline.saturating_duration_since(Instant::now())),
+                    );
                     dirty = true;
                 }
             }
@@ -214,10 +239,14 @@ impl Executor<'_> {
         if !placed.is_empty() {
             for round in 0..2 {
                 std::thread::sleep(self.options.settle);
-                let Ok(clients) = self.compositor.clients() else { break };
+                let Ok(clients) = self.compositor.clients() else {
+                    break;
+                };
                 let mut drift = false;
                 for (i, address) in &placed {
-                    let Some(c) = clients.iter().find(|c| &c.address == address) else { continue };
+                    let Some(c) = clients.iter().find(|c| &c.address == address) else {
+                        continue;
+                    };
                     let fix = plan.items[*i].placement.commands(c);
                     if fix.is_empty() {
                         continue;
@@ -227,7 +256,9 @@ impl Executor<'_> {
                         let _ = self.apply(&fix);
                     } else {
                         let ops: Vec<String> = fix.iter().map(|c| c.to_string()).collect();
-                        reports[*i].warnings.push(format!("did not reach: {}", ops.join(", ")));
+                        reports[*i]
+                            .warnings
+                            .push(format!("did not reach: {}", ops.join(", ")));
                     }
                 }
                 if !drift {
@@ -292,7 +323,8 @@ impl Executor<'_> {
             let r = &mut reports[p.item];
             r.address = Some(w.client.address.clone());
             if m.ambiguous {
-                r.warnings.push("multiple candidate windows; picked one".into());
+                r.warnings
+                    .push("multiple candidate windows; picked one".into());
             }
             match self.place(&item.placement, &w.client) {
                 Ok(()) => {
@@ -328,13 +360,20 @@ impl Executor<'_> {
         if commands.is_empty() {
             return Ok(());
         }
-        let results = self.compositor.dispatch(commands).map_err(|e| e.to_string())?;
+        let results = self
+            .compositor
+            .dispatch(commands)
+            .map_err(|e| e.to_string())?;
         let errs: Vec<String> = commands
             .iter()
             .zip(results)
             .filter_map(|(c, r)| r.err().map(|e| format!("{c}: {e}")))
             .collect();
-        if errs.is_empty() { Ok(()) } else { Err(errs.join("; ")) }
+        if errs.is_empty() {
+            Ok(())
+        } else {
+            Err(errs.join("; "))
+        }
     }
 }
 
@@ -394,9 +433,13 @@ mod tests {
             for c in commands {
                 self.log.borrow_mut().push(c.clone());
                 let mut live = self.live.borrow_mut();
-                let find = |a: &str, live: &mut LiveState| live.clients.iter_mut().position(|c| c.address == a);
+                let find = |a: &str, live: &mut LiveState| {
+                    live.clients.iter_mut().position(|c| c.address == a)
+                };
                 let r = match c {
-                    Command::Exec { argv, workspace, .. } => {
+                    Command::Exec {
+                        argv, workspace, ..
+                    } => {
                         if argv[0] == "fail" {
                             Err("spawn error".into())
                         } else {
@@ -405,7 +448,10 @@ mod tests {
                                 *n += 1;
                                 cl.address = format!("0xnew{n}");
                                 let ws = workspace.clone().unwrap_or_default();
-                                cl.workspace = WorkspaceRef { id: ws.parse().unwrap_or(1), name: ws };
+                                cl.workspace = WorkspaceRef {
+                                    id: ws.parse().unwrap_or(1),
+                                    name: ws,
+                                };
                                 self.events.borrow_mut().push_back(Event::OpenWindow {
                                     address: cl.address.clone(),
                                     workspace: cl.workspace.name.clone(),
@@ -417,23 +463,27 @@ mod tests {
                             Ok(())
                         }
                     }
-                    Command::MoveToWorkspace { address, workspace } => match find(address, &mut live) {
-                        Some(i) => {
-                            live.clients[i].workspace =
-                                WorkspaceRef { id: workspace.parse().unwrap_or(1), name: workspace.clone() };
-                            Ok(())
+                    Command::MoveToWorkspace { address, workspace } => {
+                        match find(address, &mut live) {
+                            Some(i) => {
+                                live.clients[i].workspace = WorkspaceRef {
+                                    id: workspace.parse().unwrap_or(1),
+                                    name: workspace.clone(),
+                                };
+                                Ok(())
+                            }
+                            None => Err("no such window".into()),
                         }
-                        None => Err("no such window".into()),
-                    },
-                    Command::SetFloating { address, floating } => {
-                        find(address, &mut live).map(|i| live.clients[i].floating = *floating).ok_or("x".into())
                     }
-                    Command::MoveExact { address, x, y } => {
-                        find(address, &mut live).map(|i| live.clients[i].at = [*x, *y]).ok_or("x".into())
-                    }
-                    Command::ResizeExact { address, w, h } => {
-                        find(address, &mut live).map(|i| live.clients[i].size = [*w, *h]).ok_or("x".into())
-                    }
+                    Command::SetFloating { address, floating } => find(address, &mut live)
+                        .map(|i| live.clients[i].floating = *floating)
+                        .ok_or("x".into()),
+                    Command::MoveExact { address, x, y } => find(address, &mut live)
+                        .map(|i| live.clients[i].at = [*x, *y])
+                        .ok_or("x".into()),
+                    Command::ResizeExact { address, w, h } => find(address, &mut live)
+                        .map(|i| live.clients[i].size = [*w, *h])
+                        .ok_or("x".into()),
                     _ => Ok(()),
                 };
                 out.push(r);
@@ -449,7 +499,11 @@ mod tests {
             if let Some(e) = self.0.borrow_mut().pop_front() {
                 return Ok(Some(e));
             }
-            std::thread::sleep(deadline.saturating_duration_since(Instant::now()).min(Duration::from_millis(2)));
+            std::thread::sleep(
+                deadline
+                    .saturating_duration_since(Instant::now())
+                    .min(Duration::from_millis(2)),
+            );
             Ok(None)
         }
     }
@@ -463,7 +517,10 @@ mod tests {
     }
 
     /// Snapshot of the fixture desktop, then a "reboot" leaving `keep` clients.
-    fn scenario(keep: impl Fn(&Client) -> bool, spawn: impl Fn(&[String]) -> Option<Client> + 'static) -> (Snapshot, Fake) {
+    fn scenario(
+        keep: impl Fn(&Client) -> bool,
+        spawn: impl Fn(&[String]) -> Option<Client> + 'static,
+    ) -> (Snapshot, Fake) {
         let live = fixture_live();
         let snap = build_snapshot_at(
             "s".into(),
@@ -497,16 +554,27 @@ mod tests {
             launch_wrapper: &[],
             runnable,
         });
-        let ex = Executor { compositor: fake, discovery: &d, options: opts() };
+        let ex = Executor {
+            compositor: fake,
+            discovery: &d,
+            options: opts(),
+        };
         ex.run(&p, snap, &mut FakeEvents(fake.events.clone()))
     }
 
     /// Spawns a window looking like the fixture client with this class.
     fn spawn_like(class: &'static str, pid: i32) -> impl Fn(&[String]) -> Option<Client> {
         move |_| {
-            let mut c = fixture_live().clients.into_iter().find(|c| c.class == class).unwrap();
+            let mut c = fixture_live()
+                .clients
+                .into_iter()
+                .find(|c| c.class == class)
+                .unwrap();
             c.pid = pid;
-            c.workspace = WorkspaceRef { id: 9, name: "9".into() };
+            c.workspace = WorkspaceRef {
+                id: 9,
+                name: "9".into(),
+            };
             Some(c)
         }
     }
@@ -518,11 +586,24 @@ mod tests {
         let r = execute(&snap, &fake, &|_| true);
         let foot = r.items.iter().find(|i| i.label == "foot").unwrap();
         assert_eq!(foot.outcome, Outcome::Launched, "{r:#?}");
-        let placed = fake.live.borrow().clients.iter().find(|c| c.class == "foot").unwrap().workspace.id;
+        let placed = fake
+            .live
+            .borrow()
+            .clients
+            .iter()
+            .find(|c| c.class == "foot")
+            .unwrap()
+            .workspace
+            .id;
         assert_eq!(placed, 3);
         assert_eq!(r.failures(), 0);
         // Nothing else launched: no duplicates.
-        let execs = fake.log.borrow().iter().filter(|c| matches!(c, Command::Exec { .. })).count();
+        let execs = fake
+            .log
+            .borrow()
+            .iter()
+            .filter(|c| matches!(c, Command::Exec { .. }))
+            .count();
         assert_eq!(execs, 1);
     }
 
@@ -542,7 +623,11 @@ mod tests {
         let (snap, fake) = scenario(
             |_| false,
             |argv: &[String]| {
-                if argv[0] == "foot" { spawn_like("foot", 147550)(argv) } else { None }
+                if argv[0] == "foot" {
+                    spawn_like("foot", 147550)(argv)
+                } else {
+                    None
+                }
             },
         );
         let r = execute(&snap, &fake, &|_| true);
@@ -557,10 +642,19 @@ mod tests {
         // A stray foot exists on ws 5 but the snapshot's foot... is matched to
         // it by the planner (reuse), so no launch and no duplicate.
         let (snap, fake) = scenario(|_| true, |_| None);
-        fake.live.borrow_mut().clients[2].workspace = WorkspaceRef { id: 5, name: "5".into() };
+        fake.live.borrow_mut().clients[2].workspace = WorkspaceRef {
+            id: 5,
+            name: "5".into(),
+        };
         let r = execute(&snap, &fake, &|_| true);
         let foot = r.items.iter().find(|i| i.label == "foot").unwrap();
         assert_eq!(foot.outcome, Outcome::Placed);
-        assert!(!fake.log.borrow().iter().any(|c| matches!(c, Command::Exec { .. })));
+        assert!(
+            !fake
+                .log
+                .borrow()
+                .iter()
+                .any(|c| matches!(c, Command::Exec { .. }))
+        );
     }
 }

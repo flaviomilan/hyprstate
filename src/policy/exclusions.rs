@@ -4,8 +4,15 @@ use serde::{Deserialize, Serialize};
 
 /// Applications excluded even without configuration.
 pub const DEFAULT_EXCLUDES: &[&str] = &[
-    "1password", "keepassxc", "org.keepassxc.keepassxc", "bitwarden", "com.bitwarden.desktop",
-    "proton-pass", "enpass", "seahorse", "org.gnome.seahorse.application",
+    "1password",
+    "keepassxc",
+    "org.keepassxc.keepassxc",
+    "bitwarden",
+    "com.bitwarden.desktop",
+    "proton-pass",
+    "enpass",
+    "seahorse",
+    "org.gnome.seahorse.application",
 ];
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -37,7 +44,10 @@ impl Exclusions {
         if use_defaults {
             all.extend(DEFAULT_EXCLUDES.iter().map(|s| s.to_string()));
         }
-        Self { names: all, rules: rules.to_vec() }
+        Self {
+            names: all,
+            rules: rules.to_vec(),
+        }
     }
 
     /// Returns the reason a window is excluded, if it is.
@@ -47,7 +57,11 @@ impl Exclusions {
             .chain(s.app_ids.iter().map(String::as_str))
             .map(|c| c.to_ascii_lowercase());
         for c in candidates {
-            if let Some(n) = self.names.iter().find(|n| **n == c || c.ends_with(&format!(".{n}"))) {
+            if let Some(n) = self
+                .names
+                .iter()
+                .find(|n| **n == c || c.ends_with(&format!(".{n}")))
+            {
                 return Some(format!("excluded by name '{n}'"));
             }
         }
@@ -56,7 +70,9 @@ impl Exclusions {
         };
         for r in &self.rules {
             let any_set = r.class.is_some() || r.initial_class.is_some() || r.title.is_some();
-            if any_set && eq(&r.class, s.class) && eq(&r.initial_class, s.initial_class)
+            if any_set
+                && eq(&r.class, s.class)
+                && eq(&r.initial_class, s.initial_class)
                 && eq(&r.title, s.title)
             {
                 return Some(format!("excluded by rule {r:?}"));
@@ -71,21 +87,36 @@ mod tests {
     use super::*;
 
     fn subj<'a>(class: &'a str, ids: &'a [String]) -> Subject<'a> {
-        Subject { class, initial_class: class, title: "", app_ids: ids }
+        Subject {
+            class,
+            initial_class: class,
+            title: "",
+            app_ids: ids,
+        }
     }
 
     #[test]
     fn matches_names_rules_and_defaults() {
         let ex = Exclusions::new(
             &["Signal".into()],
-            &[ExcludeRule { class: Some("secret-app".into()), ..Default::default() }],
+            &[ExcludeRule {
+                class: Some("secret-app".into()),
+                ..Default::default()
+            }],
             true,
         );
         assert!(ex.check(&subj("org.keepassxc.KeePassXC", &[])).is_some());
         assert!(ex.check(&subj("signal", &[])).is_some());
-        assert!(ex.check(&subj("x", &["com.bitwarden.desktop".into()])).is_some());
+        assert!(
+            ex.check(&subj("x", &["com.bitwarden.desktop".into()]))
+                .is_some()
+        );
         assert!(ex.check(&subj("Secret-App", &[])).is_some());
         assert!(ex.check(&subj("foot", &[])).is_none());
-        assert!(Exclusions::new(&[], &[], false).check(&subj("1password", &[])).is_none());
+        assert!(
+            Exclusions::new(&[], &[], false)
+                .check(&subj("1password", &[]))
+                .is_none()
+        );
     }
 }

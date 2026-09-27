@@ -113,7 +113,10 @@ impl Placement {
             });
         }
         if current.floating != self.floating {
-            out.push(Command::SetFloating { address: address.clone(), floating: self.floating });
+            out.push(Command::SetFloating {
+                address: address.clone(),
+                floating: self.floating,
+            });
         }
         // Tiled geometry belongs to the layout; only floating windows are placed.
         if self.floating {
@@ -125,10 +128,17 @@ impl Placement {
                 });
             }
             if current.at != self.at {
-                out.push(Command::MoveExact { address: address.clone(), x: self.at[0], y: self.at[1] });
+                out.push(Command::MoveExact {
+                    address: address.clone(),
+                    x: self.at[0],
+                    y: self.at[1],
+                });
             }
             if current.pinned != self.pinned {
-                out.push(Command::SetPinned { address: address.clone(), pinned: self.pinned });
+                out.push(Command::SetPinned {
+                    address: address.clone(),
+                    pinned: self.pinned,
+                });
             }
         }
         if current.fullscreen != self.fullscreen {
@@ -152,9 +162,15 @@ pub enum Action {
         ambiguous: bool,
         commands: Vec<Command>,
     },
-    Launch { spec: LaunchSpec },
-    Unresolved { reason: String },
-    Excluded { reason: String },
+    Launch {
+        spec: LaunchSpec,
+    },
+    Unresolved {
+        reason: String,
+    },
+    Excluded {
+        reason: String,
+    },
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -218,7 +234,11 @@ pub fn label(r: &WindowRecord) -> String {
         AppIdentity::Desktop { id } | AppIdentity::Flatpak { app_id: id } => {
             // Reverse-DNS ids read better by their last segment.
             let last = id.rsplit('.').next().unwrap_or(id);
-            if id.matches('.').count() >= 2 { last.to_string() } else { id.clone() }
+            if id.matches('.').count() >= 2 {
+                last.to_string()
+            } else {
+                id.clone()
+            }
         }
         AppIdentity::Executable { path } => path
             .file_name()
@@ -232,8 +252,11 @@ pub fn plan(input: &PlanInput) -> Plan {
     let snap = input.snapshot;
 
     // Excluded live windows are never touched, not even as match candidates.
-    let candidates: Vec<&ResolvedWindow> =
-        input.windows.iter().filter(|w| w.excluded.is_none()).collect();
+    let candidates: Vec<&ResolvedWindow> = input
+        .windows
+        .iter()
+        .filter(|w| w.excluded.is_none())
+        .collect();
 
     // Records the current policy excludes (config may have changed since capture).
     let mut items: Vec<Option<PlanItem>> = vec![None; snap.windows.len()];
@@ -260,17 +283,26 @@ pub fn plan(input: &PlanInput) -> Plan {
     }
 
     // `always_launch` records never take over an already open window.
-    let reusable: Vec<usize> =
-        wanted.iter().copied().filter(|&i| !snap.windows[i].require.always_launch).collect();
+    let reusable: Vec<usize> = wanted
+        .iter()
+        .copied()
+        .filter(|&i| !snap.windows[i].require.always_launch)
+        .collect();
     let assignment = matcher::assign(
-        &reusable.iter().map(|&i| snap.windows[i].clone()).collect::<Vec<_>>(),
+        &reusable
+            .iter()
+            .map(|&i| snap.windows[i].clone())
+            .collect::<Vec<_>>(),
         &candidates.iter().map(|w| (*w).clone()).collect::<Vec<_>>(),
     );
 
     for &i in &wanted {
         let r = &snap.windows[i];
         let placement = Placement::of(r);
-        let matched = reusable.iter().position(|&j| j == i).and_then(|ei| assignment.for_expected(ei));
+        let matched = reusable
+            .iter()
+            .position(|&j| j == i)
+            .and_then(|ei| assignment.for_expected(ei));
         let action = match matched {
             Some(m) => {
                 let client = &candidates[m.candidate].client;
@@ -284,16 +316,28 @@ pub fn plan(input: &PlanInput) -> Plan {
             }
             None => launch_action(r, input),
         };
-        items[i] = Some(PlanItem { key: r.key, label: label(r), placement, action });
+        items[i] = Some(PlanItem {
+            key: r.key,
+            label: label(r),
+            placement,
+            action,
+        });
     }
     let items: Vec<PlanItem> = items.into_iter().flatten().collect();
 
     let workspace_commands = workspace_commands(snap, input.live);
 
-    let mut summary = Summary { untouched: assignment.unmatched_candidates.len(), ..Default::default() };
+    let mut summary = Summary {
+        untouched: assignment.unmatched_candidates.len(),
+        ..Default::default()
+    };
     for it in &items {
         match &it.action {
-            Action::Reuse { commands, ambiguous, .. } => {
+            Action::Reuse {
+                commands,
+                ambiguous,
+                ..
+            } => {
                 summary.reuse += 1;
                 summary.to_move += usize::from(!commands.is_empty());
                 summary.ambiguous += usize::from(*ambiguous);
@@ -303,22 +347,41 @@ pub fn plan(input: &PlanInput) -> Plan {
             Action::Excluded { .. } => summary.excluded += 1,
         }
     }
-    Plan { snapshot: snap.name.clone(), items, workspace_commands, summary }
+    Plan {
+        snapshot: snap.name.clone(),
+        items,
+        workspace_commands,
+        summary,
+    }
 }
 
 fn launch_action(r: &WindowRecord, input: &PlanInput) -> Action {
-    let spec = match input.overrides.iter().find(|o| o.matches(&r.class, &r.initial_class, &r.title)) {
+    let spec = match input
+        .overrides
+        .iter()
+        .find(|o| o.matches(&r.class, &r.initial_class, &r.title))
+    {
         Some(o) => match shell_words::split(&o.command) {
-            Ok(argv) if !argv.is_empty() => {
-                LaunchSpec { argv, cwd: o.cwd.clone(), via: LaunchVia::Override }
+            Ok(argv) if !argv.is_empty() => LaunchSpec {
+                argv,
+                cwd: o.cwd.clone(),
+                via: LaunchVia::Override,
+            },
+            _ => {
+                return Action::Unresolved {
+                    reason: format!("invalid override command: {}", o.command),
+                };
             }
-            _ => return Action::Unresolved { reason: format!("invalid override command: {}", o.command) },
         },
         None => match &r.app.launch {
             Some(spec) => spec.clone(),
             None => {
                 return Action::Unresolved {
-                    reason: r.app.launch_problem.clone().unwrap_or_else(|| "no launch command".into()),
+                    reason: r
+                        .app
+                        .launch_problem
+                        .clone()
+                        .unwrap_or_else(|| "no launch command".into()),
                 };
             }
         },
@@ -328,15 +391,24 @@ fn launch_action(r: &WindowRecord, input: &PlanInput) -> Action {
     if let Some(prog) = argv.first()
         && !(input.runnable)(prog)
     {
-        return Action::Unresolved { reason: format!("executable not found: {prog}") };
+        return Action::Unresolved {
+            reason: format!("executable not found: {prog}"),
+        };
     }
-    Action::Launch { spec: LaunchSpec { argv, ..spec } }
+    Action::Launch {
+        spec: LaunchSpec { argv, ..spec },
+    }
 }
 
 /// Bind snapshot workspaces back to their monitors when those monitors exist
 /// and more than one is connected.
 fn workspace_commands(snap: &Snapshot, live: &LiveState) -> Vec<Command> {
-    let monitors: Vec<&str> = live.monitors.iter().filter(|m| !m.disabled).map(|m| m.name.as_str()).collect();
+    let monitors: Vec<&str> = live
+        .monitors
+        .iter()
+        .filter(|m| !m.disabled)
+        .map(|m| m.name.as_str())
+        .collect();
     if monitors.len() < 2 {
         return Vec::new();
     }
@@ -346,11 +418,23 @@ fn workspace_commands(snap: &Snapshot, live: &LiveState) -> Vec<Command> {
         .filter(|w| {
             live.workspaces
                 .iter()
-                .find(|lw| WorkspaceRef { id: lw.id, name: lw.name.clone() }.same_as(&WorkspaceRef { id: w.id, name: w.name.clone() }))
+                .find(|lw| {
+                    WorkspaceRef {
+                        id: lw.id,
+                        name: lw.name.clone(),
+                    }
+                    .same_as(&WorkspaceRef {
+                        id: w.id,
+                        name: w.name.clone(),
+                    })
+                })
                 .is_none_or(|lw| lw.monitor != w.monitor)
         })
         .map(|w| Command::MoveWorkspaceToMonitor {
-            workspace: workspace_target(&WorkspaceRef { id: w.id, name: w.name.clone() }),
+            workspace: workspace_target(&WorkspaceRef {
+                id: w.id,
+                name: w.name.clone(),
+            }),
             monitor: w.monitor.clone(),
         })
         .collect()
@@ -370,7 +454,12 @@ mod tests {
         (live, wins, snap)
     }
 
-    fn run(snap: &Snapshot, live: &LiveState, wins: &[ResolvedWindow], runnable: &dyn Fn(&str) -> bool) -> Plan {
+    fn run(
+        snap: &Snapshot,
+        live: &LiveState,
+        wins: &[ResolvedWindow],
+        runnable: &dyn Fn(&str) -> bool,
+    ) -> Plan {
         let excl = Exclusions::new(&[], &[], true);
         plan(&PlanInput {
             snapshot: snap,
@@ -395,14 +484,22 @@ mod tests {
     #[test]
     fn moved_window_is_moved_back() {
         let (mut live, _, snap) = setup();
-        live.clients[2].workspace = WorkspaceRef { id: 7, name: "7".into() };
+        live.clients[2].workspace = WorkspaceRef {
+            id: 7,
+            name: "7".into(),
+        };
         let wins = fixture_discovery().windows(&live.clients);
         let p = run(&snap, &live, &wins, &|_| true);
         assert_eq!(p.summary.to_move, 1);
-        let Action::Reuse { commands, .. } = &p.items[2].action else { panic!() };
+        let Action::Reuse { commands, .. } = &p.items[2].action else {
+            panic!()
+        };
         assert_eq!(
             commands,
-            &vec![Command::MoveToWorkspace { address: live.clients[2].address.clone(), workspace: "3".into() }]
+            &vec![Command::MoveToWorkspace {
+                address: live.clients[2].address.clone(),
+                workspace: "3".into()
+            }]
         );
     }
 
@@ -424,7 +521,10 @@ mod tests {
                 _ => None,
             })
             .collect();
-        assert!(launches.contains(&&vec!["omarchy-launch-webapp".to_string(), "https://web.whatsapp.com/".into()]));
+        assert!(launches.contains(&&vec![
+            "omarchy-launch-webapp".to_string(),
+            "https://web.whatsapp.com/".into()
+        ]));
         assert!(launches.contains(&&vec!["foot".to_string()]));
     }
 
@@ -435,7 +535,9 @@ mod tests {
         let p = run(&snap, &live, &[], &|prog| prog != "foot");
         assert_eq!(p.summary.unresolved, 1);
         assert_eq!(p.summary.launch, 3);
-        let Action::Unresolved { reason } = &p.items[2].action else { panic!() };
+        let Action::Unresolved { reason } = &p.items[2].action else {
+            panic!()
+        };
         assert_eq!(reason, "executable not found: foot");
     }
 
@@ -448,9 +550,13 @@ mod tests {
         live.clients[0].at = [999, 999]; // tiled window drift is ignored
         let wins = fixture_discovery().windows(&live.clients);
         let p = run(&snap, &live, &wins, &|_| true);
-        let Action::Reuse { commands, .. } = &p.items[0].action else { panic!() };
+        let Action::Reuse { commands, .. } = &p.items[0].action else {
+            panic!()
+        };
         assert!(commands.is_empty());
-        let Action::Reuse { commands, .. } = &p.items[2].action else { panic!() };
+        let Action::Reuse { commands, .. } = &p.items[2].action else {
+            panic!()
+        };
         let ops: Vec<String> = commands.iter().map(|c| c.to_string()).collect();
         assert_eq!(ops, vec!["float", "size 800x600", "position 100,100"]);
     }

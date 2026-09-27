@@ -27,7 +27,10 @@ pub struct PolicyConfig {
 
 impl Default for PolicyConfig {
     fn default() -> Self {
-        Self { exclude: Vec::new(), default_excludes: true }
+        Self {
+            exclude: Vec::new(),
+            default_excludes: true,
+        }
     }
 }
 
@@ -48,7 +51,10 @@ pub struct RestoreConfig {
 
 impl Default for RestoreConfig {
     fn default() -> Self {
-        Self { timeout: 30, launch_wrapper: Vec::new() }
+        Self {
+            timeout: 30,
+            launch_wrapper: Vec::new(),
+        }
     }
 }
 
@@ -76,9 +82,15 @@ impl WindowOverride {
         if m.class.is_none() && m.initial_class.is_none() && m.title_contains.is_none() {
             return false;
         }
-        m.class.as_ref().is_none_or(|c| c.eq_ignore_ascii_case(class))
-            && m.initial_class.as_ref().is_none_or(|c| c.eq_ignore_ascii_case(initial_class))
-            && m.title_contains.as_ref().is_none_or(|t| title.contains(t.as_str()))
+        m.class
+            .as_ref()
+            .is_none_or(|c| c.eq_ignore_ascii_case(class))
+            && m.initial_class
+                .as_ref()
+                .is_none_or(|c| c.eq_ignore_ascii_case(initial_class))
+            && m.title_contains
+                .as_ref()
+                .is_none_or(|t| title.contains(t.as_str()))
     }
 }
 
@@ -106,7 +118,11 @@ impl Config {
     }
 
     pub fn exclusions(&self) -> Exclusions {
-        Exclusions::new(&self.policy.exclude, &self.exclude, self.policy.default_excludes)
+        Exclusions::new(
+            &self.policy.exclude,
+            &self.exclude,
+            self.policy.default_excludes,
+        )
     }
 }
 
@@ -139,7 +155,10 @@ mod tests {
         .unwrap();
         assert_eq!(cfg.policy.exclude.len(), 2);
         assert!(cfg.policy.default_excludes);
-        assert_eq!(cfg.exclude[0].class.as_deref(), Some("org.keepassxc.KeePassXC"));
+        assert_eq!(
+            cfg.exclude[0].class.as_deref(),
+            Some("org.keepassxc.KeePassXC")
+        );
         assert!(cfg.windows[0].matches("Foo", "foo", ""));
         assert_eq!(cfg.security.sensitive_args, SensitiveArgs::Reject);
         assert_eq!(cfg.restore.timeout, 45);

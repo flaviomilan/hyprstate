@@ -53,7 +53,11 @@ impl WorkspaceRef {
     /// Numbered workspaces are identified by id; named and special ones by
     /// name, since their (negative) ids are reassigned when recreated.
     pub fn same_as(&self, other: &WorkspaceRef) -> bool {
-        if self.id > 0 || other.id > 0 { self.id == other.id } else { self.name == other.name }
+        if self.id > 0 || other.id > 0 {
+            self.id == other.id
+        } else {
+            self.name == other.name
+        }
     }
 }
 
@@ -128,7 +132,10 @@ pub struct LiveState {
 
 impl LiveState {
     pub fn monitor_name(&self, id: i64) -> Option<&str> {
-        self.monitors.iter().find(|m| m.id == id).map(|m| m.name.as_str())
+        self.monitors
+            .iter()
+            .find(|m| m.id == id)
+            .map(|m| m.name.as_str())
     }
 }
 
@@ -137,8 +144,11 @@ mod tests {
     use super::*;
 
     fn fixture(name: &str) -> String {
-        std::fs::read_to_string(format!("{}/tests/fixtures/{name}.json", env!("CARGO_MANIFEST_DIR")))
-            .unwrap()
+        std::fs::read_to_string(format!(
+            "{}/tests/fixtures/{name}.json",
+            env!("CARGO_MANIFEST_DIR")
+        ))
+        .unwrap()
     }
 
     #[test]

@@ -20,8 +20,11 @@ pub struct ProcessInfo {
     pub env_flatpak_id: Option<String>,
 }
 
-const ENV_ALLOWLIST: &[&str] =
-    &["GIO_LAUNCHED_DESKTOP_FILE", "GIO_LAUNCHED_DESKTOP_FILE_PID", "FLATPAK_ID"];
+const ENV_ALLOWLIST: &[&str] = &[
+    "GIO_LAUNCHED_DESKTOP_FILE",
+    "GIO_LAUNCHED_DESKTOP_FILE_PID",
+    "FLATPAK_ID",
+];
 
 pub fn read_process(pid: i32) -> ProcessInfo {
     read_process_at(Path::new("/proc"), pid)
@@ -37,13 +40,17 @@ pub fn read_process_at(proc_root: &Path, pid: i32) -> ProcessInfo {
                 .collect()
         })
         .unwrap_or_default();
-    let cgroup = std::fs::read_to_string(dir.join("cgroup")).ok().and_then(|s| {
-        s.lines().find_map(|l| l.strip_prefix("0::").map(str::to_string))
-    });
-    let child_cwd = std::fs::read_to_string(dir.join("task").join(pid.to_string()).join("children"))
+    let cgroup = std::fs::read_to_string(dir.join("cgroup"))
         .ok()
-        .and_then(|s| s.split_whitespace().next().map(str::to_string))
-        .and_then(|child| std::fs::read_link(proc_root.join(child).join("cwd")).ok());
+        .and_then(|s| {
+            s.lines()
+                .find_map(|l| l.strip_prefix("0::").map(str::to_string))
+        });
+    let child_cwd =
+        std::fs::read_to_string(dir.join("task").join(pid.to_string()).join("children"))
+            .ok()
+            .and_then(|s| s.split_whitespace().next().map(str::to_string))
+            .and_then(|child| std::fs::read_link(proc_root.join(child).join("cwd")).ok());
     let (env_desktop_file, env_flatpak_id) = read_env_allowlist(&dir.join("environ"), pid);
     ProcessInfo {
         pid,
@@ -58,13 +65,19 @@ pub fn read_process_at(proc_root: &Path, pid: i32) -> ProcessInfo {
 }
 
 fn read_env_allowlist(path: &Path, pid: i32) -> (Option<String>, Option<String>) {
-    let Ok(bytes) = std::fs::read(path) else { return (None, None) };
+    let Ok(bytes) = std::fs::read(path) else {
+        return (None, None);
+    };
     let mut desktop = None;
     let mut desktop_pid = None;
     let mut flatpak = None;
     for entry in bytes.split(|&c| c == 0) {
-        let Ok(entry) = std::str::from_utf8(entry) else { continue };
-        let Some((k, v)) = entry.split_once('=') else { continue };
+        let Ok(entry) = std::str::from_utf8(entry) else {
+            continue;
+        };
+        let Some((k, v)) = entry.split_once('=') else {
+            continue;
+        };
         if !ENV_ALLOWLIST.contains(&k) {
             continue;
         }

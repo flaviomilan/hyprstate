@@ -96,7 +96,8 @@ struct Scored {
 
 fn score<E: Matchable, C: Matchable>(e: &E, c: &C) -> Option<Scored> {
     if e.required_cwd().is_some_and(|want| c.cwd() != Some(want))
-        || e.required_title().is_some_and(|want| !c.title().contains(want))
+        || e.required_title()
+            .is_some_and(|want| !c.title().contains(want))
     {
         return None;
     }
@@ -121,14 +122,19 @@ fn score<E: Matchable, C: Matchable>(e: &E, c: &C) -> Option<Scored> {
         Strategy::Class => 50,
     };
     let exact_title = !e.title().is_empty() && e.title() == c.title();
-    let same_initial_title = !e.initial_title().is_empty() && e.initial_title() == c.initial_title();
+    let same_initial_title =
+        !e.initial_title().is_empty() && e.initial_title() == c.initial_title();
     if exact_title {
         s += 20;
     }
     if same_initial_title {
         s += 5;
     }
-    let overlap = if exact_title { 0 } else { word_overlap(e.title(), c.title()) };
+    let overlap = if exact_title {
+        0
+    } else {
+        word_overlap(e.title(), c.title())
+    };
     s += overlap;
     if e.class().eq_ignore_ascii_case(c.class()) {
         s += 5;
@@ -136,7 +142,11 @@ fn score<E: Matchable, C: Matchable>(e: &E, c: &C) -> Option<Scored> {
     if e.workspace().same_as(c.workspace()) {
         s += 3;
     }
-    Some(Scored { score: s, strategy, title_match: exact_title || overlap >= 5 })
+    Some(Scored {
+        score: s,
+        strategy,
+        title_match: exact_title || overlap >= 5,
+    })
 }
 
 /// 0‥10 by Jaccard similarity of lowercase words (length ≥ 2).
@@ -166,7 +176,12 @@ pub fn assign<E: Matchable, C: Matchable>(expected: &[E], candidates: &[C]) -> A
         }
     }
     // Highest score first; ties broken by input order for determinism.
-    pairs.sort_by(|a, b| b.2.score.cmp(&a.2.score).then(a.0.cmp(&b.0)).then(a.1.cmp(&b.1)));
+    pairs.sort_by(|a, b| {
+        b.2.score
+            .cmp(&a.2.score)
+            .then(a.0.cmp(&b.0))
+            .then(a.1.cmp(&b.1))
+    });
 
     let mut used_e = vec![false; expected.len()];
     let mut used_c = vec![false; candidates.len()];
@@ -199,10 +214,16 @@ pub fn assign<E: Matchable, C: Matchable>(expected: &[E], candidates: &[C]) -> A
     // window with a different target, so swapping them would change the
     // result. Swapping identical twins (same target) is harmless.
     let owner: Vec<Option<usize>> = (0..candidates.len())
-        .map(|ci| matches.iter().find(|m| m.candidate == ci).map(|m| m.expected))
+        .map(|ci| {
+            matches
+                .iter()
+                .find(|m| m.candidate == ci)
+                .map(|m| m.expected)
+        })
         .collect();
     let same_target = |a: usize, b: usize| {
-        expected[a].workspace().same_as(expected[b].workspace()) && expected[a].floating() == expected[b].floating()
+        expected[a].workspace().same_as(expected[b].workspace())
+            && expected[a].floating() == expected[b].floating()
     };
     for m in &mut matches {
         m.ambiguous = pairs.iter().any(|(ei, ci, s)| {
@@ -269,7 +290,10 @@ pub(crate) mod tests {
             id: AppIdentity::Desktop { id: app.into() },
             class: app.into(),
             title: title.into(),
-            ws: WorkspaceRef { id: ws, name: ws.to_string() },
+            ws: WorkspaceRef {
+                id: ws,
+                name: ws.to_string(),
+            },
             floating: false,
         }
     }
@@ -277,7 +301,11 @@ pub(crate) mod tests {
     #[test]
     fn counts_missing_windows() {
         // Snapshot: Firefox ×3; live: Firefox ×2 → one unmatched (to launch).
-        let exp = [w("firefox", "a", 1), w("firefox", "b", 2), w("firefox", "c", 3)];
+        let exp = [
+            w("firefox", "a", 1),
+            w("firefox", "b", 2),
+            w("firefox", "c", 3),
+        ];
         let cur = [w("firefox", "b", 5), w("firefox", "zzz", 5)];
         let a = assign(&exp, &cur);
         assert_eq!(a.matches.len(), 2);
@@ -315,9 +343,13 @@ pub(crate) mod tests {
     #[test]
     fn class_fallback_is_lower_confidence() {
         let mut e = w("foo", "t", 1);
-        e.id = AppIdentity::Executable { path: "/usr/bin/foo".into() };
+        e.id = AppIdentity::Executable {
+            path: "/usr/bin/foo".into(),
+        };
         let mut c = w("foo", "t", 1);
-        c.id = AppIdentity::Class { class: "foo".into() };
+        c.id = AppIdentity::Class {
+            class: "foo".into(),
+        };
         let a = assign(&[e], &[c]);
         assert_eq!(a.matches[0].strategy, Strategy::Class);
         assert_eq!(a.matches[0].confidence, Confidence::Medium);
@@ -334,17 +366,39 @@ pub(crate) mod tests {
     struct Req(W, Option<&'static str>, Option<&'static str>);
 
     impl Matchable for Req {
-        fn identity(&self) -> &AppIdentity { self.0.identity() }
-        fn confidence(&self) -> Confidence { self.0.confidence() }
-        fn class(&self) -> &str { self.0.class() }
-        fn initial_class(&self) -> &str { self.0.initial_class() }
-        fn title(&self) -> &str { self.0.title() }
-        fn initial_title(&self) -> &str { self.0.initial_title() }
-        fn workspace(&self) -> &WorkspaceRef { self.0.workspace() }
-        fn floating(&self) -> bool { self.0.floating() }
-        fn cwd(&self) -> Option<&Path> { self.1.map(Path::new) }
-        fn required_cwd(&self) -> Option<&Path> { self.1.map(Path::new) }
-        fn required_title(&self) -> Option<&str> { self.2 }
+        fn identity(&self) -> &AppIdentity {
+            self.0.identity()
+        }
+        fn confidence(&self) -> Confidence {
+            self.0.confidence()
+        }
+        fn class(&self) -> &str {
+            self.0.class()
+        }
+        fn initial_class(&self) -> &str {
+            self.0.initial_class()
+        }
+        fn title(&self) -> &str {
+            self.0.title()
+        }
+        fn initial_title(&self) -> &str {
+            self.0.initial_title()
+        }
+        fn workspace(&self) -> &WorkspaceRef {
+            self.0.workspace()
+        }
+        fn floating(&self) -> bool {
+            self.0.floating()
+        }
+        fn cwd(&self) -> Option<&Path> {
+            self.1.map(Path::new)
+        }
+        fn required_cwd(&self) -> Option<&Path> {
+            self.1.map(Path::new)
+        }
+        fn required_title(&self) -> Option<&str> {
+            self.2
+        }
     }
 
     #[test]
@@ -352,12 +406,25 @@ pub(crate) mod tests {
         let want = Req(w("kitty", "", 2), Some("/p/recsys"), None);
         let other = Req(w("kitty", "x", 2), Some("/p/other"), None);
         let right = Req(w("kitty", "x", 7), Some("/p/recsys"), None);
-        assert!(assign(std::slice::from_ref(&want), &[other]).matches.is_empty());
+        assert!(
+            assign(std::slice::from_ref(&want), &[other])
+                .matches
+                .is_empty()
+        );
         assert_eq!(assign(&[want], &[right]).matches.len(), 1);
 
         let want = Req(w("firefox", "", 3), None, Some("Linear"));
-        assert!(assign(std::slice::from_ref(&want), &[w("firefox", "YouTube", 3)]).matches.is_empty());
-        assert_eq!(assign(&[want], &[w("firefox", "Linear - Issues", 3)]).matches.len(), 1);
+        assert!(
+            assign(std::slice::from_ref(&want), &[w("firefox", "YouTube", 3)])
+                .matches
+                .is_empty()
+        );
+        assert_eq!(
+            assign(&[want], &[w("firefox", "Linear - Issues", 3)])
+                .matches
+                .len(),
+            1
+        );
     }
 
     #[test]

@@ -18,7 +18,9 @@ impl AppUnit {
 
 /// Parses the last `app-*.scope|service` component of a cgroup path.
 pub fn parse_cgroup(cgroup: &str) -> Option<AppUnit> {
-    let unit = cgroup.rsplit('/').find(|c| c.starts_with("app-") && !c.ends_with(".slice"))?;
+    let unit = cgroup
+        .rsplit('/')
+        .find(|c| c.starts_with("app-") && !c.ends_with(".slice"))?;
     parse_unit(unit)
 }
 
@@ -83,22 +85,34 @@ mod tests {
     fn parses_real_scopes() {
         assert_eq!(
             parse_cgroup(&format!("{BASE}app-org.chromium.Chromium-5237.scope")),
-            Some(AppUnit { launcher: None, app_id: "org.chromium.Chromium".into() })
+            Some(AppUnit {
+                launcher: None,
+                app_id: "org.chromium.Chromium".into()
+            })
         );
         assert_eq!(
             parse_cgroup(&format!(
                 r"{BASE}app-graphical.slice/app-Hyprland-xdg\x2dterminal\x2dexec-4c0069b2.scope"
             )),
-            Some(AppUnit { launcher: Some("Hyprland".into()), app_id: "xdg-terminal-exec".into() })
+            Some(AppUnit {
+                launcher: Some("Hyprland".into()),
+                app_id: "xdg-terminal-exec".into()
+            })
         );
         let fp = parse_unit("app-flatpak-com.spotify.Client-1234.scope").unwrap();
         assert!(fp.is_flatpak());
         assert_eq!(fp.app_id, "com.spotify.Client");
         assert_eq!(
             parse_unit("app-gnome-firefox@abc123.service"),
-            Some(AppUnit { launcher: Some("gnome".into()), app_id: "firefox".into() })
+            Some(AppUnit {
+                launcher: Some("gnome".into()),
+                app_id: "firefox".into()
+            })
         );
-        assert_eq!(parse_cgroup("/user.slice/user-1000.slice/session-2.scope"), None);
+        assert_eq!(
+            parse_cgroup("/user.slice/user-1000.slice/session-2.scope"),
+            None
+        );
         assert_eq!(unescape("a\\xé-b"), "a\\xé-b");
     }
 }

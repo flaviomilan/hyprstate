@@ -30,12 +30,19 @@ fn home_relative(p: &Path) -> String {
 }
 
 fn local_time(ts: &jiff::Timestamp) -> String {
-    ts.to_zoned(jiff::tz::TimeZone::system()).strftime("%Y-%m-%d %H:%M").to_string()
+    ts.to_zoned(jiff::tz::TimeZone::system())
+        .strftime("%Y-%m-%d %H:%M")
+        .to_string()
 }
 
 pub fn saved(s: &Snapshot, path: &Path) -> String {
     let mut o = String::new();
-    let wss = s.windows.iter().map(|w| &w.workspace.name).collect::<std::collections::HashSet<_>>().len();
+    let wss = s
+        .windows
+        .iter()
+        .map(|w| &w.workspace.name)
+        .collect::<std::collections::HashSet<_>>()
+        .len();
     writeln!(o, "Saved snapshot {}", s.name).unwrap();
     write!(o, "  {} windows on {} workspaces", s.windows.len(), wss).unwrap();
     if s.excluded_count > 0 {
@@ -52,16 +59,27 @@ pub fn list(list: &[Listed], dir: &Path) -> String {
     let w = list.iter().map(|l| l.name.len()).max().unwrap_or(4).max(4);
     let mut o = format!("{:<w$}  {:<16}  WINDOWS\n", "NAME", "CREATED");
     for l in list {
-        writeln!(o, "{:<w$}  {:<16}  {}", l.name, local_time(&l.snapshot.created_at), l.snapshot.windows.len())
-            .unwrap();
+        writeln!(
+            o,
+            "{:<w$}  {:<16}  {}",
+            l.name,
+            local_time(&l.snapshot.created_at),
+            l.snapshot.windows.len()
+        )
+        .unwrap();
     }
     o
 }
 
-fn by_workspace<'a, T>(items: impl Iterator<Item = (i64, &'a str, T)>) -> BTreeMap<(u8, i64, String), (String, Vec<T>)> {
+fn by_workspace<'a, T>(
+    items: impl Iterator<Item = (i64, &'a str, T)>,
+) -> BTreeMap<(u8, i64, String), (String, Vec<T>)> {
     let mut m: BTreeMap<(u8, i64, String), (String, Vec<T>)> = BTreeMap::new();
     for (id, name, t) in items {
-        m.entry(ws_order(id, name)).or_insert_with(|| (name.to_string(), Vec::new())).1.push(t);
+        m.entry(ws_order(id, name))
+            .or_insert_with(|| (name.to_string(), Vec::new()))
+            .1
+            .push(t);
     }
     m
 }
@@ -71,9 +89,18 @@ pub fn inspect(s: &Snapshot, windows: bool) -> String {
     writeln!(o, "Hyprland\n  version: {}\n", s.hyprland.version).unwrap();
     writeln!(o, "Monitors").unwrap();
     for m in &s.monitors {
-        writeln!(o, "  {} {}x{} @ {},{} (scale {})", m.name, m.width, m.height, m.x, m.y, m.scale).unwrap();
+        writeln!(
+            o,
+            "  {} {}x{} @ {},{} (scale {})",
+            m.name, m.width, m.height, m.x, m.y, m.scale
+        )
+        .unwrap();
     }
-    let groups = by_workspace(s.windows.iter().map(|w| (w.workspace.id, w.workspace.name.as_str(), w)));
+    let groups = by_workspace(
+        s.windows
+            .iter()
+            .map(|w| (w.workspace.id, w.workspace.name.as_str(), w)),
+    );
     writeln!(o, "\nWorkspaces").unwrap();
     for (name, ws) in groups.values() {
         let n = ws.len();
@@ -109,10 +136,18 @@ pub fn inspect(s: &Snapshot, windows: bool) -> String {
 fn window_detail(o: &mut String, w: &WindowRecord) {
     let a = &w.app;
     writeln!(o, "  {}  \"{}\"", label(w), truncate(&w.title, 60)).unwrap();
-    writeln!(o, "    class:      {} (initial {})", w.class, w.initial_class).unwrap();
+    writeln!(
+        o,
+        "    class:      {} (initial {})",
+        w.class, w.initial_class
+    )
+    .unwrap();
     let mut state = vec![if w.floating { "floating" } else { "tiled" }.to_string()];
     if w.floating {
-        state.push(format!("{}x{} @ {},{}", w.size[0], w.size[1], w.at[0], w.at[1]));
+        state.push(format!(
+            "{}x{} @ {},{}",
+            w.size[0], w.size[1], w.at[0], w.at[1]
+        ));
     }
     if w.fullscreen > 0 {
         state.push(format!("fullscreen {}", w.fullscreen));
@@ -150,12 +185,24 @@ pub fn plan(p: &Plan, s: &Snapshot) -> String {
         Some(name) => format!("Workset: {name}\n"),
         None => format!("Snapshot: {} ({})\n", p.snapshot, local_time(&s.created_at)),
     };
-    let groups = by_workspace(p.items.iter().map(|i| (i.placement.workspace.id, i.placement.workspace.name.as_str(), i)));
+    let groups = by_workspace(p.items.iter().map(|i| {
+        (
+            i.placement.workspace.id,
+            i.placement.workspace.name.as_str(),
+            i,
+        )
+    }));
     for (name, items) in groups.values() {
         writeln!(o, "\nWorkspace {name}").unwrap();
         for it in items {
             match &it.action {
-                Action::Reuse { commands, ambiguous, confidence, strategy, .. } => {
+                Action::Reuse {
+                    commands,
+                    ambiguous,
+                    confidence,
+                    strategy,
+                    ..
+                } => {
                     let mark = if *ambiguous { "⚠" } else { "✓" };
                     if commands.is_empty() {
                         writeln!(o, "  {mark} {}", it.label).unwrap();
@@ -171,7 +218,13 @@ pub fn plan(p: &Plan, s: &Snapshot) -> String {
                     }
                 }
                 Action::Launch { spec } => {
-                    writeln!(o, "  + {}  (launch: {})", it.label, shell_words::join(&spec.argv)).unwrap();
+                    writeln!(
+                        o,
+                        "  + {}  (launch: {})",
+                        it.label,
+                        shell_words::join(&spec.argv)
+                    )
+                    .unwrap();
                 }
                 Action::Unresolved { reason } => {
                     writeln!(o, "  ✗ {}\n      reason: {reason}", it.label).unwrap();
@@ -203,7 +256,11 @@ pub fn plan(p: &Plan, s: &Snapshot) -> String {
         writeln!(o, "  other windows left alone: {}", s.untouched).unwrap();
     }
     if p.is_noop() {
-        let what = if p.snapshot.starts_with("workset:") { "workset" } else { "snapshot" };
+        let what = if p.snapshot.starts_with("workset:") {
+            "workset"
+        } else {
+            "snapshot"
+        };
         writeln!(o, "\nDesktop already matches the {what}.").unwrap();
     }
     o
@@ -211,7 +268,11 @@ pub fn plan(p: &Plan, s: &Snapshot) -> String {
 
 pub fn report(r: &Report) -> String {
     let mut o = format!("Restored {}\n", r.snapshot);
-    let groups = by_workspace(r.items.iter().map(|i| (i.workspace.parse().unwrap_or(0), i.workspace.as_str(), i)));
+    let groups = by_workspace(
+        r.items
+            .iter()
+            .map(|i| (i.workspace.parse().unwrap_or(0), i.workspace.as_str(), i)),
+    );
     for (name, items) in groups.values() {
         writeln!(o, "\nWorkspace {name}").unwrap();
         for it in items {
@@ -225,7 +286,11 @@ pub fn report(r: &Report) -> String {
                 Outcome::Unresolved => ("✗", "unresolved"),
                 Outcome::Excluded => ("-", "excluded"),
             };
-            let mark = if mark == "✓" && !it.warnings.is_empty() { "⚠" } else { mark };
+            let mark = if mark == "✓" && !it.warnings.is_empty() {
+                "⚠"
+            } else {
+                mark
+            };
             if what.is_empty() {
                 writeln!(o, "  {mark} {}", it.label).unwrap();
             } else {
@@ -245,7 +310,12 @@ pub fn report(r: &Report) -> String {
     let count = |f: fn(Outcome) -> bool| r.items.iter().filter(|i| f(i.outcome)).count();
     writeln!(o, "\nResult:").unwrap();
     writeln!(o, "  launched: {}", count(|x| x == Outcome::Launched)).unwrap();
-    writeln!(o, "  reused: {}", count(|x| matches!(x, Outcome::Unchanged | Outcome::Placed))).unwrap();
+    writeln!(
+        o,
+        "  reused: {}",
+        count(|x| matches!(x, Outcome::Unchanged | Outcome::Placed))
+    )
+    .unwrap();
     writeln!(o, "  failed: {}", r.failures()).unwrap();
     writeln!(o, "  time: {:.1}s", r.elapsed_ms as f64 / 1000.0).unwrap();
     o
@@ -258,7 +328,13 @@ pub fn diff(d: &Diff) -> String {
     let mut o = format!("{} → {}\n", d.from, d.to);
     let adds = d.added.iter().map(|w| (w, '+'));
     let rems = d.removed.iter().map(|w| (w, '-'));
-    let groups = by_workspace(adds.chain(rems).map(|(w, c)| (w.workspace.parse().unwrap_or(0), w.workspace.as_str(), (w, c))));
+    let groups = by_workspace(adds.chain(rems).map(|(w, c)| {
+        (
+            w.workspace.parse().unwrap_or(0),
+            w.workspace.as_str(),
+            (w, c),
+        )
+    }));
     for (name, items) in groups.values() {
         writeln!(o, "\nWorkspace {name}").unwrap();
         for (w, c) in items {
@@ -266,7 +342,13 @@ pub fn diff(d: &Diff) -> String {
         }
     }
     for ch in &d.changed {
-        writeln!(o, "\n{}  \"{}\"", ch.window.label, truncate(&ch.window.title, 50)).unwrap();
+        writeln!(
+            o,
+            "\n{}  \"{}\"",
+            ch.window.label,
+            truncate(&ch.window.title, 50)
+        )
+        .unwrap();
         for f in &ch.changes {
             writeln!(o, "  {}: {} → {}", f.field, f.from, f.to).unwrap();
         }
@@ -274,9 +356,19 @@ pub fn diff(d: &Diff) -> String {
     o
 }
 
-pub fn workset_saved(name: &str, ws: &Workset, path: &Path, backup: Option<&Path>, skipped: &[String]) -> String {
+pub fn workset_saved(
+    name: &str,
+    ws: &Workset,
+    path: &Path,
+    backup: Option<&Path>,
+    skipped: &[String],
+) -> String {
     let n = ws.windows.len();
-    let mut o = format!("Saved workset {name} ({n} window{})\n  {}\n", if n == 1 { "" } else { "s" }, home_relative(path));
+    let mut o = format!(
+        "Saved workset {name} ({n} window{})\n  {}\n",
+        if n == 1 { "" } else { "s" },
+        home_relative(path)
+    );
     if let Some(b) = backup {
         writeln!(o, "  previous version: {}", home_relative(b)).unwrap();
     }
@@ -291,13 +383,22 @@ pub fn workset_saved(name: &str, ws: &Workset, path: &Path, backup: Option<&Path
 
 pub fn worksets(list: &[(String, anyhow::Result<Workset>)], dir: &Path) -> String {
     if list.is_empty() {
-        return format!("No worksets in {}\n(create one: hyprstate workset create NAME, or save the desktop: hyprstate workset save NAME)\n", home_relative(dir));
+        return format!(
+            "No worksets in {}\n(create one: hyprstate workset create NAME, or save the desktop: hyprstate workset save NAME)\n",
+            home_relative(dir)
+        );
     }
     let w = list.iter().map(|(n, _)| n.len()).max().unwrap_or(4).max(4);
     let mut o = format!("{:<w$}  WINDOWS  DESCRIPTION\n", "NAME");
     for (name, ws) in list {
         match ws {
-            Ok(ws) => writeln!(o, "{name:<w$}  {:<7}  {}", ws.windows.len(), ws.description.as_deref().unwrap_or("")).unwrap(),
+            Ok(ws) => writeln!(
+                o,
+                "{name:<w$}  {:<7}  {}",
+                ws.windows.len(),
+                ws.description.as_deref().unwrap_or("")
+            )
+            .unwrap(),
             Err(e) => writeln!(o, "{name:<w$}  ✗ invalid: {e:#}").unwrap(),
         }
     }

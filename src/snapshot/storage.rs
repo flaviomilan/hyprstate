@@ -51,7 +51,10 @@ impl Store {
             .with_context(|| format!("creating {}", self.dir.display()))?;
         let path = self.dir.join(snap.file_name());
         if path.exists() && !overwrite {
-            bail!("snapshot '{}' already exists (use --force to overwrite)", snap.name);
+            bail!(
+                "snapshot '{}' already exists (use --force to overwrite)",
+                snap.name
+            );
         }
         let tmp = self.dir.join(format!(".{}.tmp", snap.name));
         {
@@ -78,7 +81,10 @@ impl Store {
             self.dir.join(format!("{name_or_path}.json"))
         };
         if !path.exists() {
-            bail!("snapshot '{name_or_path}' not found in {}", self.dir.display());
+            bail!(
+                "snapshot '{name_or_path}' not found in {}",
+                self.dir.display()
+            );
         }
         load_path(&path)
     }
@@ -94,16 +100,29 @@ impl Store {
         };
         for entry in rd.flatten() {
             let path = entry.path();
-            let name = path.file_stem().and_then(|s| s.to_str()).unwrap_or_default().to_string();
+            let name = path
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or_default()
+                .to_string();
             if path.extension().is_none_or(|e| e != "json") || name.starts_with('.') {
                 continue;
             }
             match load_path(&path) {
-                Ok(snapshot) => ok.push(Listed { name, path, snapshot }),
+                Ok(snapshot) => ok.push(Listed {
+                    name,
+                    path,
+                    snapshot,
+                }),
                 Err(e) => bad.push((path, e)),
             }
         }
-        ok.sort_by(|a, b| a.snapshot.created_at.cmp(&b.snapshot.created_at).then(a.name.cmp(&b.name)));
+        ok.sort_by(|a, b| {
+            a.snapshot
+                .created_at
+                .cmp(&b.snapshot.created_at)
+                .then(a.name.cmp(&b.name))
+        });
         Ok((ok, bad))
     }
 
@@ -112,16 +131,29 @@ impl Store {
         list.into_iter()
             .next_back()
             .map(|l| l.snapshot)
-            .with_context(|| format!("no snapshots in {} (run `hyprstate snapshot`)", self.dir.display()))
+            .with_context(|| {
+                format!(
+                    "no snapshots in {} (run `hyprstate snapshot`)",
+                    self.dir.display()
+                )
+            })
     }
 }
 
 fn load_path(path: &Path) -> Result<Snapshot> {
-    let raw = std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
-    let v: serde_json::Value = serde_json::from_str(&raw).with_context(|| format!("parsing {}", path.display()))?;
-    let version = v.get("schema_version").and_then(|v| v.as_u64()).unwrap_or(0);
+    let raw =
+        std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
+    let v: serde_json::Value =
+        serde_json::from_str(&raw).with_context(|| format!("parsing {}", path.display()))?;
+    let version = v
+        .get("schema_version")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0);
     if version != SCHEMA_VERSION as u64 {
-        bail!("{}: unsupported schema_version {version} (expected {SCHEMA_VERSION})", path.display());
+        bail!(
+            "{}: unsupported schema_version {version} (expected {SCHEMA_VERSION})",
+            path.display()
+        );
     }
     serde_json::from_value(v).with_context(|| format!("parsing {}", path.display()))
 }
@@ -130,7 +162,9 @@ pub fn validate_name(name: &str) -> Result<()> {
     let ok = !name.is_empty()
         && !name.starts_with('.')
         && name.len() <= 128
-        && name.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'));
+        && name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'));
     if !ok {
         bail!("invalid snapshot name '{name}': use letters, digits, '-', '_' and '.'");
     }
@@ -161,8 +195,18 @@ mod tests {
         let store = Store::new(dir.clone());
         let live = fixture_live();
         let wins = fixture_discovery().windows(&live.clients);
-        let a = build_snapshot_at("a".into(), Timestamp::from_second(10).unwrap(), &live, &wins);
-        let b = build_snapshot_at("b".into(), Timestamp::from_second(20).unwrap(), &live, &wins);
+        let a = build_snapshot_at(
+            "a".into(),
+            Timestamp::from_second(10).unwrap(),
+            &live,
+            &wins,
+        );
+        let b = build_snapshot_at(
+            "b".into(),
+            Timestamp::from_second(20).unwrap(),
+            &live,
+            &wins,
+        );
         store.save(&b, false).unwrap();
         store.save(&a, false).unwrap();
         assert!(store.save(&a, false).is_err());
@@ -171,7 +215,10 @@ mod tests {
         assert_eq!(store.list().unwrap().0.len(), 2);
         assert_eq!(store.load("a").unwrap().windows.len(), 4);
         use std::os::unix::fs::PermissionsExt;
-        let mode = std::fs::metadata(dir.join("a.json")).unwrap().permissions().mode();
+        let mode = std::fs::metadata(dir.join("a.json"))
+            .unwrap()
+            .permissions()
+            .mode();
         assert_eq!(mode & 0o777, 0o600);
         std::fs::remove_dir_all(dir).unwrap();
     }

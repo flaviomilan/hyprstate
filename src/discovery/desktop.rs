@@ -44,7 +44,9 @@ pub fn parse_desktop_file(id: &str, path: &Path, content: &str) -> Option<Deskto
         if !in_main || line.starts_with('#') {
             continue;
         }
-        let Some((k, v)) = line.split_once('=') else { continue };
+        let Some((k, v)) = line.split_once('=') else {
+            continue;
+        };
         match k.trim() {
             "Name" => name = Some(v.trim().to_string()),
             "Exec" => exec = Some(v.trim().to_string()),
@@ -112,7 +114,12 @@ impl DesktopIndex {
             .filter(|s| !s.is_empty())
             .unwrap_or_else(|| "/usr/local/share:/usr/share".into());
         dirs.extend(data_dirs.split(':').map(PathBuf::from));
-        Self::load_from(&dirs.iter().map(|d| d.join("applications")).collect::<Vec<_>>())
+        Self::load_from(
+            &dirs
+                .iter()
+                .map(|d| d.join("applications"))
+                .collect::<Vec<_>>(),
+        )
     }
 
     pub fn load_from(app_dirs: &[PathBuf]) -> Self {
@@ -130,7 +137,9 @@ impl DesktopIndex {
     /// Case-insensitive lookup by desktop id.
     pub fn get(&self, id: &str) -> Option<&DesktopEntry> {
         let id = id.strip_suffix(".desktop").unwrap_or(id);
-        self.by_id.get(&id.to_ascii_lowercase()).map(|&i| &self.entries[i])
+        self.by_id
+            .get(&id.to_ascii_lowercase())
+            .map(|&i| &self.entries[i])
     }
 
     pub fn by_path(&self, path: &Path) -> Option<&DesktopEntry> {
@@ -138,9 +147,11 @@ impl DesktopIndex {
     }
 
     pub fn by_wm_class(&self, class: &str) -> Option<&DesktopEntry> {
-        self.entries
-            .iter()
-            .find(|e| e.startup_wm_class.as_deref().is_some_and(|c| c.eq_ignore_ascii_case(class)))
+        self.entries.iter().find(|e| {
+            e.startup_wm_class
+                .as_deref()
+                .is_some_and(|c| c.eq_ignore_ascii_case(class))
+        })
     }
 
     /// Entries whose `Exec` program has this basename. Visible entries first,
@@ -159,7 +170,9 @@ impl DesktopIndex {
 }
 
 fn scan_dir(root: &Path, dir: &Path, out: &mut Vec<DesktopEntry>) {
-    let Ok(rd) = std::fs::read_dir(dir) else { return };
+    let Ok(rd) = std::fs::read_dir(dir) else {
+        return;
+    };
     let mut paths: Vec<PathBuf> = rd.flatten().map(|e| e.path()).collect();
     paths.sort();
     for path in paths {
@@ -171,12 +184,19 @@ fn scan_dir(root: &Path, dir: &Path, out: &mut Vec<DesktopEntry>) {
             continue;
         }
         // Desktop file id: path relative to applications/, '/' → '-'.
-        let Ok(rel) = path.strip_prefix(root) else { continue };
-        let id = rel.to_string_lossy().trim_end_matches(".desktop").replace('/', "-");
+        let Ok(rel) = path.strip_prefix(root) else {
+            continue;
+        };
+        let id = rel
+            .to_string_lossy()
+            .trim_end_matches(".desktop")
+            .replace('/', "-");
         if out.iter().any(|e| e.id == id) {
             continue;
         }
-        let Ok(content) = std::fs::read_to_string(&path) else { continue };
+        let Ok(content) = std::fs::read_to_string(&path) else {
+            continue;
+        };
         if let Some(entry) = parse_desktop_file(&id, &path, &content) {
             out.push(entry);
         }
@@ -209,7 +229,10 @@ mod tests {
             "x",
             "[Desktop Entry]\nType=Application\nExec=env FOO=1 \"/opt/My App/app\" --x %F 100%%\n",
         );
-        assert_eq!(e.exec, vec!["env", "FOO=1", "/opt/My App/app", "--x", "100%"]);
+        assert_eq!(
+            e.exec,
+            vec!["env", "FOO=1", "/opt/My App/app", "--x", "100%"]
+        );
         assert_eq!(e.program(), Some("/opt/My App/app"));
     }
 
@@ -218,17 +241,30 @@ mod tests {
         let p = Path::new("/x");
         assert!(parse_desktop_file("a", p, "[Desktop Entry]\nType=Link\nExec=x\n").is_none());
         assert!(
-            parse_desktop_file("a", p, "[Desktop Entry]\nType=Application\nHidden=true\nExec=x\n")
-                .is_none()
+            parse_desktop_file(
+                "a",
+                p,
+                "[Desktop Entry]\nType=Application\nHidden=true\nExec=x\n"
+            )
+            .is_none()
         );
     }
 
     #[test]
     fn index_lookups() {
         let idx = DesktopIndex::from_entries(vec![
-            entry("chromium", "[Desktop Entry]\nType=Application\nExec=/usr/bin/chromium %U\n"),
-            entry("foot", "[Desktop Entry]\nType=Application\nExec=foot\nStartupWMClass=foot\n"),
-            entry("footclient", "[Desktop Entry]\nType=Application\nExec=footclient\n"),
+            entry(
+                "chromium",
+                "[Desktop Entry]\nType=Application\nExec=/usr/bin/chromium %U\n",
+            ),
+            entry(
+                "foot",
+                "[Desktop Entry]\nType=Application\nExec=foot\nStartupWMClass=foot\n",
+            ),
+            entry(
+                "footclient",
+                "[Desktop Entry]\nType=Application\nExec=footclient\n",
+            ),
         ]);
         assert_eq!(idx.get("Chromium.desktop").unwrap().id, "chromium");
         assert_eq!(idx.by_wm_class("FOOT").unwrap().id, "foot");
