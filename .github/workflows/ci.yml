@@ -57,3 +57,27 @@ jobs:
           cargo llvm-cov report --summary-only | tee summary.txt
           cargo llvm-cov report --show-missing-lines | sed -n '/Uncovered Lines/,$p' | tee -a summary.txt
           { echo '```'; cat summary.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+
+  packaging:
+    name: packaging
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: shellcheck install.sh
+      - run: cargo publish --dry-run --locked
+      - name: PKGBUILDs
+        run: |
+          docker run --rm -v "$PWD/packaging/aur:/aur:ro" archlinux:base-devel bash -euc '
+            pacman -Sy --noconfirm --needed namcap >/dev/null
+            useradd -m builder
+            for p in /aur/*/PKGBUILD; do
+              echo "== $p"
+              cp -r "$(dirname "$p")" /tmp/pkg && chown -R builder /tmp/pkg
+              su builder -c "cd /tmp/pkg && makepkg --printsrcinfo" >/dev/null
+              namcap /tmp/pkg/PKGBUILD
+              rm -rf /tmp/pkg
+            done'

@@ -1,0 +1,117 @@
+name: Build release
+
+on:
+  workflow_call:
+    inputs:
+      tag:
+        type: string
+        required: true
+      publish:
+        type: boolean
+        default: false
+  # Dry run: build and keep the artifacts, publish nothing.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Version to label the artifacts with (e.g. v0.0.0-test)
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: ${{ matrix.target }}
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    strategy:
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-musl
+            runner: ubuntu-latest
+          - target: aarch64-unknown-linux-musl
+            runner: ubuntu-24.04-arm
+    env:
+      TAG: ${{ inputs.tag }}
+      TARGET: ${{ matrix.target }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.publish && inputs.tag || github.sha }}
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - run: sudo apt-get install -y --no-install-recommends musl-tools
+      - run: cargo build --release --locked --target "$TARGET"
+      - name: Check the binary
+        run: |
+          bin="target/$TARGET/release/hyprstate"
+          file "$bin" | tee /dev/stderr | grep -Eq 'static(-pie)? linked|statically linked'
+          if [ "${{ inputs.publish }}" = true ]; then
+            "$bin" --version | tee /dev/stderr | grep -qx "hyprstate ${TAG#v}"
+          fi
+      - name: Package
+        run: |
+          dir="hyprstate-$TAG-$TARGET"
+          mkdir "$dir"
+          cp "target/$TARGET/release/hyprstate" README.md LICENSE-MIT LICENSE-APACHE "$dir/"
+          tar -czf "$dir.tar.gz" "$dir"
+          sha256sum "$dir.tar.gz" > "$dir.tar.gz.sha256"
+          tar -tzf "$dir.tar.gz"
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        if: inputs.publish
+        with:
+          subject-path: hyprstate-*.tar.gz
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ matrix.target }}
+          path: hyprstate-*.tar.gz*
+          if-no-files-found: error
+
+  upload:
+    needs: build
+    if: inputs.publish
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          merge-multiple: true
+      - run: gh release upload "${{ inputs.tag }}" hyprstate-*.tar.gz* --clobber --repo "$GITHUB_REPOSITORY"
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+  # Opt-in: set the repository variable AUR_ENABLED=true once the AUR
+  # secrets exist.
+  aur:
+    needs: upload
+    if: inputs.publish && vars.AUR_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        package: [hyprstate-bin, hyprstate]
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Render PKGBUILD
+        run: |
+          tag="${{ inputs.tag }}"
+          sed "s/^pkgver=.*/pkgver=${tag#v}/" \
+            "packaging/aur/${{ matrix.package }}/PKGBUILD" > PKGBUILD
+      - uses: KSXGitHub/github-actions-deploy-aur@084b0d9b15415bf9cdb65d44dad1efe37a354050 # v4.2.0
+        with:
+          pkgname: ${{ matrix.package }}
+          pkgbuild: ./PKGBUILD
+          updpkgsums: true
+          test: ${{ matrix.package == 'hyprstate-bin' }}
+          commit_username: ${{ secrets.AUR_USERNAME }}
+          commit_email: ${{ secrets.AUR_EMAIL }}
+          ssh_private_key: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
+          commit_message: Update to ${{ inputs.tag }}
