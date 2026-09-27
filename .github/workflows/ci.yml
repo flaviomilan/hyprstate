@@ -35,7 +35,7 @@ jobs:
     name: coverage
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@stable
@@ -45,16 +45,15 @@ jobs:
         with:
           tool: cargo-llvm-cov
       - uses: Swatinem/rust-cache@v2
-      # Raise the floor as coverage grows, never lower it. ipc.rs and main.rs
-      # need a live Hyprland socket, so they're left out of the measurement.
+      # Every line and every function, nothing excluded.
       - run: >
           cargo llvm-cov --locked
-          --ignore-filename-regex '(src/main\.rs|src/hyprland/ipc\.rs)$'
-          --fail-under-lines 74
+          --fail-under-lines 100
+          --fail-under-functions 100
           --lcov --output-path lcov.info
       - name: Report
         if: ${{ !cancelled() }}
         run: |
-          cargo llvm-cov report --summary-only \
-            --ignore-filename-regex '(src/main\.rs|src/hyprland/ipc\.rs)$' | tee summary.txt
+          cargo llvm-cov report --summary-only | tee summary.txt
+          cargo llvm-cov report --show-missing-lines | sed -n '/Uncovered Lines/,$p' | tee -a summary.txt
           { echo '```'; cat summary.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"

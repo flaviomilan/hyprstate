@@ -168,4 +168,56 @@ mod tests {
     fn rejects_typos() {
         assert!(toml::from_str::<Config>("[polcy]\nexclude=[]").is_err());
     }
+
+    #[test]
+    fn empty_override_matches_nothing() {
+        let o = WindowOverride {
+            matcher: OverrideMatch::default(),
+            command: "x".into(),
+            cwd: None,
+        };
+        assert!(!o.matches("x", "x", "x"));
+
+        let o = WindowOverride {
+            matcher: OverrideMatch {
+                class: None,
+                initial_class: Some("Foot".into()),
+                title_contains: Some("htop".into()),
+            },
+            ..o
+        };
+        assert!(o.matches("x", "foot", "htop - ~"));
+        assert!(!o.matches("x", "foot", "~"));
+    }
+
+    #[test]
+    fn loads_explicit_path_and_reports_errors() {
+        let dir = std::env::temp_dir().join(format!("hyprstate-cfg-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let good = dir.join("good.toml");
+        std::fs::write(&good, "[restore]\ntimeout = 5\n").unwrap();
+        let cfg = Config::load(Some(&good)).unwrap();
+        assert_eq!(cfg.restore.timeout, 5);
+        assert!(
+            cfg.exclusions()
+                .check(&crate::policy::exclusions::Subject {
+                    class: "KeePassXC",
+                    initial_class: "",
+                    title: "",
+                    app_ids: &[],
+                })
+                .is_some()
+        );
+
+        let bad = dir.join("bad.toml");
+        std::fs::write(&bad, "[restore]\ntimeout = \"soon\"\n").unwrap();
+        let err = format!("{:#}", Config::load(Some(&bad)).unwrap_err());
+        assert!(err.starts_with("parsing "), "{err}");
+        let err = format!(
+            "{:#}",
+            Config::load(Some(&dir.join("missing.toml"))).unwrap_err()
+        );
+        assert!(err.starts_with("reading "), "{err}");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
 }

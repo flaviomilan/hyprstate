@@ -184,10 +184,9 @@ fn scan_dir(root: &Path, dir: &Path, out: &mut Vec<DesktopEntry>) {
             continue;
         }
         // Desktop file id: path relative to applications/, '/' → '-'.
-        let Ok(rel) = path.strip_prefix(root) else {
-            continue;
-        };
-        let id = rel
+        let id = path
+            .strip_prefix(root)
+            .expect("read_dir yields paths under the scanned root")
             .to_string_lossy()
             .trim_end_matches(".desktop")
             .replace('/', "-");
@@ -270,5 +269,39 @@ mod tests {
         assert_eq!(idx.by_wm_class("FOOT").unwrap().id, "foot");
         assert_eq!(idx.by_program("chromium").unwrap().id, "chromium");
         assert!(idx.by_program("firefox").is_none());
+    }
+
+    #[test]
+    fn skips_unknown_keys_and_lines_without_values() {
+        let e = entry(
+            "x",
+            "[Desktop Entry]\nType=Application\nComment=hi\nnot a pair\nExec=x\n",
+        );
+        assert_eq!(e.exec, vec!["x"]);
+    }
+
+    #[test]
+    fn loads_nested_dirs_first_root_wins() {
+        let base = std::env::temp_dir().join(format!("hyprstate-desktop-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let (a, b) = (base.join("a"), base.join("b"));
+        std::fs::create_dir_all(a.join("kde")).unwrap();
+        std::fs::create_dir_all(&b).unwrap();
+        let app = |exec: &str| format!("[Desktop Entry]\nType=Application\nExec={exec}\n");
+        std::fs::write(a.join("foot.desktop"), app("foot")).unwrap();
+        std::fs::write(a.join("kde/dolphin.desktop"), app("dolphin")).unwrap();
+        std::fs::write(a.join("README"), "not a desktop file").unwrap();
+        std::fs::write(a.join("broken.desktop"), [0xff, 0xfe]).unwrap();
+        std::fs::write(a.join("link.desktop"), "[Desktop Entry]\nType=Link\n").unwrap();
+        std::fs::write(b.join("foot.desktop"), app("foot --server")).unwrap();
+
+        let idx = DesktopIndex::load_from(&[a.clone(), b, base.join("missing")]);
+        let ids: Vec<&str> = idx.entries().iter().map(|e| e.id.as_str()).collect();
+        assert_eq!(ids, ["foot", "kde-dolphin"]);
+        assert_eq!(idx.get("foot").unwrap().exec, vec!["foot"]);
+        let dolphin = a.join("kde/dolphin.desktop");
+        assert_eq!(idx.by_path(&dolphin).unwrap().id, "kde-dolphin");
+        assert!(idx.by_path(Path::new("/nope.desktop")).is_none());
+        std::fs::remove_dir_all(base).unwrap();
     }
 }

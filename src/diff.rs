@@ -164,4 +164,18 @@ mod tests {
             }]
         );
     }
+
+    #[test]
+    fn floating_windows_compare_geometry() {
+        let live = fixture_live();
+        let wins = fixture_discovery().windows(&live.clients);
+        let mut a = build_snapshot_at("a".into(), Timestamp::UNIX_EPOCH, &live, &wins);
+        a.windows[2].floating = true;
+        let mut b = a.clone();
+        b.windows[2].at = [10, 20];
+        b.windows[2].size = [300, 200];
+        let d = diff(&a, &b);
+        let fields: Vec<&str> = d.changed[0].changes.iter().map(|c| c.field).collect();
+        assert_eq!(fields, ["position", "size"]);
+    }
 }

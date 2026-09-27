@@ -454,6 +454,49 @@ mod tests {
         (live, wins, snap)
     }
 
+    fn reuse_commands(item: &PlanItem) -> &[Command] {
+        match &item.action {
+            Action::Reuse { commands, .. } => commands,
+            other => panic!("expected reuse, got {other:?}"),
+        }
+    }
+
+    fn unresolved(item: &PlanItem) -> &str {
+        match &item.action {
+            Action::Unresolved { reason } => reason,
+            other => panic!("expected unresolved, got {other:?}"),
+        }
+    }
+
+    fn launch_spec(item: &PlanItem) -> &LaunchSpec {
+        match &item.action {
+            Action::Launch { spec } => spec,
+            other => panic!("expected launch, got {other:?}"),
+        }
+    }
+
+    #[test]
+    #[should_panic(expected = "expected launch")]
+    fn launch_spec_rejects_other_actions() {
+        let (live, wins, snap) = setup();
+        launch_spec(&run(&snap, &live, &wins, &|_| true).items[0]);
+    }
+
+    #[test]
+    #[should_panic(expected = "expected reuse")]
+    fn reuse_commands_rejects_other_actions() {
+        let (mut live, _, snap) = setup();
+        live.clients.clear();
+        reuse_commands(&run(&snap, &live, &[], &|_| true).items[0]);
+    }
+
+    #[test]
+    #[should_panic(expected = "expected unresolved")]
+    fn unresolved_rejects_other_actions() {
+        let (live, wins, snap) = setup();
+        unresolved(&run(&snap, &live, &wins, &|_| true).items[0]);
+    }
+
     fn run(
         snap: &Snapshot,
         live: &LiveState,
@@ -491,11 +534,8 @@ mod tests {
         let wins = fixture_discovery().windows(&live.clients);
         let p = run(&snap, &live, &wins, &|_| true);
         assert_eq!(p.summary.to_move, 1);
-        let Action::Reuse { commands, .. } = &p.items[2].action else {
-            panic!()
-        };
         assert_eq!(
-            commands,
+            reuse_commands(&p.items[2]),
             &vec![Command::MoveToWorkspace {
                 address: live.clients[2].address.clone(),
                 workspace: "3".into()
@@ -535,10 +575,7 @@ mod tests {
         let p = run(&snap, &live, &[], &|prog| prog != "foot");
         assert_eq!(p.summary.unresolved, 1);
         assert_eq!(p.summary.launch, 3);
-        let Action::Unresolved { reason } = &p.items[2].action else {
-            panic!()
-        };
-        assert_eq!(reason, "executable not found: foot");
+        assert_eq!(unresolved(&p.items[2]), "executable not found: foot");
     }
 
     #[test]
@@ -550,14 +587,170 @@ mod tests {
         live.clients[0].at = [999, 999]; // tiled window drift is ignored
         let wins = fixture_discovery().windows(&live.clients);
         let p = run(&snap, &live, &wins, &|_| true);
-        let Action::Reuse { commands, .. } = &p.items[0].action else {
-            panic!()
-        };
-        assert!(commands.is_empty());
-        let Action::Reuse { commands, .. } = &p.items[2].action else {
-            panic!()
-        };
-        let ops: Vec<String> = commands.iter().map(|c| c.to_string()).collect();
+        assert!(reuse_commands(&p.items[0]).is_empty());
+        let ops: Vec<String> = reuse_commands(&p.items[2])
+            .iter()
+            .map(|c| c.to_string())
+            .collect();
         assert_eq!(ops, vec!["float", "size 800x600", "position 100,100"]);
+    }
+
+    fn with(input: PlanInput) -> Plan {
+        plan(&input)
+    }
+
+    #[test]
+    fn excluded_records_are_skipped() {
+        let (live, wins, snap) = setup();
+        let excl = Exclusions::new(&["foot".into()], &[], false);
+        let p = with(PlanInput {
+            snapshot: &snap,
+            live: &live,
+            windows: &wins,
+            overrides: &[],
+            exclusions: &excl,
+            launch_wrapper: &[],
+            runnable: &|_| true,
+        });
+        assert!(
+            matches!(&p.items[2].action, Action::Excluded { reason } if reason.contains("foot"))
+        );
+        assert_eq!(p.summary.excluded, 1);
+        assert_eq!(p.summary.untouched, 1);
+    }
+
+    fn override_for(command: &str) -> WindowOverride {
+        WindowOverride {
+            matcher: crate::config::OverrideMatch {
+                class: Some("foot".into()),
+                ..Default::default()
+            },
+            command: command.into(),
+            cwd: Some("/tmp".into()),
+        }
+    }
+
+    #[test]
+    fn overrides_and_wrapper_shape_launches() {
+        let (mut live, _, snap) = setup();
+        live.clients.clear();
+        let excl = Exclusions::default();
+        let overrides = [override_for("foot -e htop")];
+        let wrapper = ["uwsm".to_string(), "app".into(), "--".into()];
+        let p = with(PlanInput {
+            snapshot: &snap,
+            live: &live,
+            windows: &[],
+            overrides: &overrides,
+            exclusions: &excl,
+            launch_wrapper: &wrapper,
+            runnable: &|_| true,
+        });
+        let spec = launch_spec(&p.items[2]);
+        assert_eq!(spec.argv, ["uwsm", "app", "--", "foot", "-e", "htop"]);
+        assert_eq!(spec.via, LaunchVia::Override);
+        assert_eq!(spec.cwd.as_deref(), Some(std::path::Path::new("/tmp")));
+
+        for bad in ["", "foot 'unclosed"] {
+            let overrides = [override_for(bad)];
+            let p = with(PlanInput {
+                snapshot: &snap,
+                live: &live,
+                windows: &[],
+                overrides: &overrides,
+                exclusions: &excl,
+                launch_wrapper: &[],
+                runnable: &|_| true,
+            });
+            assert!(unresolved(&p.items[2]).starts_with("invalid override command"));
+        }
+    }
+
+    #[test]
+    fn records_without_launch_command_are_unresolved() {
+        let (mut live, _, mut snap) = setup();
+        live.clients.clear();
+        snap.windows[2].app.launch = None;
+        snap.windows[2].app.launch_problem = None;
+        snap.windows[3].app.launch = None;
+        snap.windows[3].app.launch_problem = Some("redacted".into());
+        let p = run(&snap, &live, &[], &|_| true);
+        assert_eq!(unresolved(&p.items[2]), "no launch command");
+        assert_eq!(unresolved(&p.items[3]), "redacted");
+    }
+
+    #[test]
+    fn labels_read_well() {
+        let (_, _, snap) = setup();
+        let mut r = snap.windows[2].clone();
+        let lbl = |r: &WindowRecord, id: AppIdentity| {
+            let mut r = r.clone();
+            r.app.identity = id;
+            label(&r)
+        };
+        let desktop = |id: &str| AppIdentity::Desktop { id: id.into() };
+        assert_eq!(lbl(&r, desktop("org.gnome.Nautilus")), "Nautilus");
+        assert_eq!(lbl(&r, desktop("org.chromium")), "org.chromium");
+        let exe = |p: &str| AppIdentity::Executable { path: p.into() };
+        assert_eq!(lbl(&r, exe("/usr/bin/htop")), "htop");
+        r.class = "weird".into();
+        assert_eq!(lbl(&r, exe("/")), "weird");
+        assert_eq!(lbl(&r, AppIdentity::Class { class: "k".into() }), "k");
+        let web = |u: &str| AppIdentity::WebApp { url: u.into() };
+        assert_eq!(lbl(&r, web("not a url")), "not a url");
+    }
+
+    #[test]
+    fn pinned_and_fullscreen_are_restored() {
+        let (live, _, snap) = setup();
+        let mut placement = Placement::of(&snap.windows[2]);
+        placement.floating = true;
+        placement.pinned = true;
+        placement.fullscreen = 2;
+        let mut current = live.clients[2].clone();
+        current.floating = true;
+        current.at = placement.at;
+        current.size = placement.size;
+        let ops: Vec<String> = placement
+            .commands(&current)
+            .iter()
+            .map(|c| c.to_string())
+            .collect();
+        assert_eq!(ops, ["pin", "fullscreen state 2"]);
+        placement.fullscreen = 1;
+        assert!(matches!(
+            placement.commands(&current).last(),
+            Some(Command::Fullscreen { client: 0, .. })
+        ));
+    }
+
+    #[test]
+    fn workspaces_go_back_to_their_monitors() {
+        let (mut live, wins, mut snap) = setup();
+        let mut hdmi = live.monitors[0].clone();
+        hdmi.id = 1;
+        hdmi.name = "HDMI-A-1".into();
+        live.monitors.push(hdmi);
+        // ws 2 was on HDMI, now on DP-1; ws 3 is gone from the live desktop;
+        // ws 1 is already where it belongs.
+        snap.workspaces[1].monitor = "HDMI-A-1".into();
+        snap.workspaces[2].monitor = "HDMI-A-1".into();
+        live.workspaces.retain(|w| w.id != 3);
+        let p = run(&snap, &live, &wins, &|_| true);
+        let ops: Vec<String> = p.workspace_commands.iter().map(|c| c.to_string()).collect();
+        assert_eq!(
+            ops,
+            [
+                "workspace 2 → monitor HDMI-A-1",
+                "workspace 3 → monitor HDMI-A-1"
+            ]
+        );
+        assert!(!p.is_noop());
+    }
+
+    #[test]
+    fn live_windows_report_their_floating_state() {
+        let (live, wins, _) = setup();
+        assert_eq!(Matchable::floating(&wins[0]), live.clients[0].floating);
     }
 }

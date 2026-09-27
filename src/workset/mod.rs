@@ -490,4 +490,68 @@ mod tests {
         let text = toml::to_string_pretty(&ws).unwrap();
         assert_eq!(toml::from_str::<Workset>(&text).unwrap(), ws);
     }
+
+    #[test]
+    fn workspace_names_that_are_numbers_are_ids() {
+        let ws = WorkspaceSpec::Name("3".into()).to_ref();
+        assert_eq!((ws.id, ws.name.as_str()), (3, "3"));
+        let ws = WorkspaceSpec::Name("name:web".into()).to_ref();
+        assert_eq!((ws.id, ws.name.as_str()), (0, "web"));
+    }
+
+    #[test]
+    fn tilde_expands_to_home() {
+        let home = home().unwrap();
+        assert_eq!(expand_tilde("~"), home.to_string_lossy());
+        assert_eq!(expand_tilde("a~"), "a~");
+    }
+
+    #[test]
+    fn commands_without_program_are_problems() {
+        let ws: Workset = toml::from_str(
+            "[[windows]]\nworkspace = 1\ncommand = \"\"\n\n\
+             [[windows]]\nworkspace = 2\ncommand = \"omarchy-launch-webapp https://example.com\"\n",
+        )
+        .unwrap();
+        let snap = ws.to_snapshot("t", &index());
+        assert_eq!(
+            snap.windows[0].app.launch_problem.as_deref(),
+            Some("empty command")
+        );
+        assert_eq!(
+            snap.windows[1].app.identity,
+            AppIdentity::WebApp {
+                url: "https://example.com/".into()
+            }
+        );
+    }
+
+    #[test]
+    fn saving_the_desktop_keeps_what_can_be_relaunched() {
+        use crate::snapshot::capture::tests::{fixture_discovery, fixture_live};
+        let home = home().unwrap();
+        let live = fixture_live();
+        let mut wins = fixture_discovery().windows(&live.clients);
+        // A window with no way to relaunch it, one on a named workspace whose
+        // shell sits in $HOME, and one in a directory below $HOME.
+        wins[0].app.launch = None;
+        wins[1].client.workspace = WorkspaceRef {
+            id: -5,
+            name: "web".into(),
+        };
+        wins[1].app.cwd = Some(home.clone());
+        wins[2].app.cwd = Some(home.join("proj"));
+        wins[3].app.launch = None;
+        wins[3].app.launch_problem = Some("redacted".into());
+
+        let (ws, skipped) = Workset::from_live(&wins, &[]);
+        assert_eq!(skipped.len(), 2);
+        // Sorted by workspace: the redacted chromium (1) before WhatsApp (2).
+        assert!(skipped[0].ends_with(": redacted"), "{skipped:?}");
+        assert!(skipped[1].ends_with(": no launch command"), "{skipped:?}");
+        assert_eq!(ws.windows.len(), 2);
+        assert_eq!(ws.windows[0].cwd.as_deref(), Some("~/proj"));
+        assert_eq!(ws.windows[1].workspace, WorkspaceSpec::Name("web".into()));
+        assert_eq!(ws.windows[1].cwd, None);
+    }
 }

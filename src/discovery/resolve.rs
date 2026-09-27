@@ -603,4 +603,129 @@ mod tests {
         );
         assert!(r.launch.is_none());
     }
+
+    #[test]
+    fn everything_has_a_readable_name() {
+        let ids = [
+            (AppIdentity::Desktop { id: "foot".into() }, "desktop:foot"),
+            (
+                AppIdentity::Flatpak {
+                    app_id: "a.b".into(),
+                },
+                "flatpak:a.b",
+            ),
+            (
+                AppIdentity::WebApp {
+                    url: "https://x/".into(),
+                },
+                "webapp:https://x/",
+            ),
+            (
+                AppIdentity::Executable {
+                    path: "/bin/x".into(),
+                },
+                "exe:/bin/x",
+            ),
+            (AppIdentity::Class { class: "k".into() }, "class:k"),
+        ];
+        for (id, text) in ids {
+            assert_eq!(id.to_string(), text);
+        }
+        let levels = [Confidence::Low, Confidence::Medium, Confidence::High];
+        let names: Vec<String> = levels.iter().map(ToString::to_string).collect();
+        assert_eq!(names, ["LOW", "MEDIUM", "HIGH"]);
+        let sources = [
+            Source::Flatpak,
+            Source::WebAppDesktop,
+            Source::WebAppClass,
+            Source::LaunchedDesktopFile,
+            Source::SystemdScope,
+            Source::StartupWmClass,
+            Source::DesktopIdIsClass,
+            Source::ExecutableDesktop,
+            Source::Cmdline,
+            Source::ClassOnly,
+            Source::Workset,
+        ];
+        let names: std::collections::HashSet<String> =
+            sources.iter().map(ToString::to_string).collect();
+        assert_eq!(names.len(), sources.len());
+    }
+
+    #[test]
+    fn pwa_launch_prefers_omarchy_launcher_and_needs_a_browser() {
+        let pwa = facts("chrome-app.example.com__-Default", "app.example.com_/");
+        let env = ResolveEnv {
+            omarchy_webapp: Some("/usr/bin/omarchy-launch-webapp".into()),
+            ..Default::default()
+        };
+        let p = proc("/usr/lib/chromium/chromium", CHROMIUM_SCOPE);
+        let r = resolve(&pwa, &p, &DesktopIndex::default(), &env);
+        assert_eq!(
+            r.launch.unwrap().argv,
+            ["/usr/bin/omarchy-launch-webapp", "https://app.example.com/"]
+        );
+
+        let r = resolve(
+            &pwa,
+            &ProcessInfo::default(),
+            &DesktopIndex::default(),
+            &ResolveEnv::default(),
+        );
+        assert!(r.launch.is_none());
+        assert_eq!(
+            r.launch_problem.as_deref(),
+            Some("no browser found for web app")
+        );
+    }
+
+    #[test]
+    fn gio_launched_desktop_file_wins() {
+        let mut p = proc("/usr/bin/something", "/user.slice");
+        p.env_desktop_file = Some("/apps/code.desktop".into());
+        let r = resolve(&facts("xyz", ""), &p, &index(), &ResolveEnv::default());
+        assert_eq!(r.source, Source::LaunchedDesktopFile);
+        assert_eq!(r.identity, AppIdentity::Desktop { id: "code".into() });
+    }
+
+    #[test]
+    fn systemd_scope_is_trusted_when_the_program_fits() {
+        let p = proc(
+            "/usr/bin/nautilus",
+            "/app.slice/app-org.gnome.Nautilus-1234.scope",
+        );
+        let r = resolve(&facts("xyz", ""), &p, &index(), &ResolveEnv::default());
+        assert_eq!(r.source, Source::SystemdScope);
+
+        // No executable to compare and a class that does not fit: not trusted.
+        let p = ProcessInfo {
+            cgroup: p.cgroup,
+            ..Default::default()
+        };
+        let r = resolve(&facts("xyz", ""), &p, &index(), &ResolveEnv::default());
+        assert_eq!(r.source, Source::ClassOnly);
+    }
+
+    #[test]
+    fn desktop_entry_found_by_program_name() {
+        let idx = DesktopIndex::from_entries(vec![entry(
+            "files",
+            "Exec=nautilus\nStartupWMClass=org.Files",
+        )]);
+        let p = proc("/usr/bin/nautilus", "/user.slice");
+        let r = resolve(&facts("nautilus", ""), &p, &idx, &ResolveEnv::default());
+        assert_eq!(r.source, Source::ExecutableDesktop);
+        assert_eq!(r.confidence, Confidence::Medium);
+    }
+
+    #[test]
+    fn executable_without_cmdline_relaunches_itself() {
+        let p = ProcessInfo {
+            exe: Some("/opt/tool/tool".into()),
+            ..Default::default()
+        };
+        let r = resolve(&facts("", ""), &p, &index(), &ResolveEnv::default());
+        assert_eq!(r.source, Source::Cmdline);
+        assert_eq!(r.launch.unwrap().argv, ["/opt/tool/tool"]);
+    }
 }

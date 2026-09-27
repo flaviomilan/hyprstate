@@ -94,7 +94,7 @@ struct Scored {
     title_match: bool,
 }
 
-fn score<E: Matchable, C: Matchable>(e: &E, c: &C) -> Option<Scored> {
+fn score(e: &dyn Matchable, c: &dyn Matchable) -> Option<Scored> {
     if e.required_cwd().is_some_and(|want| c.cwd() != Some(want))
         || e.required_title()
             .is_some_and(|want| !c.title().contains(want))
@@ -167,10 +167,17 @@ fn word_overlap(a: &str, b: &str) -> u32 {
 }
 
 pub fn assign<E: Matchable, C: Matchable>(expected: &[E], candidates: &[C]) -> Assignment {
+    let expected: Vec<&dyn Matchable> = expected.iter().map(|e| e as &dyn Matchable).collect();
+    let candidates: Vec<&dyn Matchable> = candidates.iter().map(|c| c as &dyn Matchable).collect();
+    assign_dyn(&expected, &candidates)
+}
+
+/// One implementation for every window type.
+fn assign_dyn(expected: &[&dyn Matchable], candidates: &[&dyn Matchable]) -> Assignment {
     let mut pairs: Vec<(usize, usize, Scored)> = Vec::new();
     for (ei, e) in expected.iter().enumerate() {
         for (ci, c) in candidates.iter().enumerate() {
-            if let Some(s) = score(e, c) {
+            if let Some(s) = score(*e, *c) {
                 pairs.push((ei, ci, s));
             }
         }
@@ -353,6 +360,45 @@ pub(crate) mod tests {
         let a = assign(&[e], &[c]);
         assert_eq!(a.matches[0].strategy, Strategy::Class);
         assert_eq!(a.matches[0].confidence, Confidence::Medium);
+
+        // Without title evidence a class-only match is a guess.
+        let mut c = w("foo", "something else", 1);
+        c.id = AppIdentity::Class {
+            class: "foo".into(),
+        };
+        let mut e = w("foo", "t", 1);
+        e.id = AppIdentity::Executable {
+            path: "/usr/bin/foo".into(),
+        };
+        let a = assign(&[e], &[c]);
+        assert_eq!(a.matches[0].confidence, Confidence::Low);
+    }
+
+    #[test]
+    fn web_apps_never_match_by_class_alone() {
+        let web = |url: &str| {
+            let mut x = w("chrome-app", "t", 1);
+            x.id = AppIdentity::WebApp { url: url.into() };
+            x
+        };
+        let plain = w("chrome-app", "t", 1);
+        assert!(
+            assign(&[web("https://a/")], &[web("https://b/")])
+                .matches
+                .is_empty()
+        );
+        assert!(
+            assign(std::slice::from_ref(&plain), &[web("https://a/")])
+                .matches
+                .is_empty()
+        );
+        assert!(assign(&[web("https://a/")], &[plain]).matches.is_empty());
+    }
+
+    #[test]
+    fn strategies_display() {
+        assert_eq!(Strategy::Identity.to_string(), "application identity");
+        assert_eq!(Strategy::Class.to_string(), "class");
     }
 
     #[test]
@@ -411,6 +457,13 @@ pub(crate) mod tests {
                 .matches
                 .is_empty()
         );
+        // A candidate that cannot tell its directory never qualifies.
+        assert!(
+            assign(std::slice::from_ref(&want), &[w("kitty", "", 2)])
+                .matches
+                .is_empty()
+        );
+        assert!(!want.floating());
         assert_eq!(assign(&[want], &[right]).matches.len(), 1);
 
         let want = Req(w("firefox", "", 3), None, Some("Linear"));

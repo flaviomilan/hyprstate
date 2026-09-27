@@ -211,12 +211,9 @@ mod tests {
             "https://example.com/cb?code=123&state=a",
             "eyJhbGciOiJIUzI1NiJ9eyJzdWIiOiIxMjM0NTY3ODkwIn0",
         ]);
-        let Sanitized::Redacted(out) = sanitize(&argv, SensitiveArgs::Redact) else {
-            panic!()
-        };
         assert_eq!(
-            out,
-            v(&[
+            sanitize(&argv, SensitiveArgs::Redact),
+            Sanitized::Redacted(v(&[
                 "app",
                 "--token",
                 REDACTED,
@@ -225,8 +222,17 @@ mod tests {
                 REDACTED,
                 REDACTED,
                 REDACTED,
-            ])
+            ]))
         );
         assert_eq!(sanitize(&argv, SensitiveArgs::Reject), Sanitized::Rejected);
+    }
+
+    #[test]
+    fn long_strings_with_punctuation_are_not_secrets() {
+        let argv = v(&["app", "--greeting=hello!world!this!is!a!long!sentence!okay"]);
+        assert_eq!(
+            sanitize(&argv, SensitiveArgs::Redact),
+            Sanitized::Clean(argv)
+        );
     }
 }

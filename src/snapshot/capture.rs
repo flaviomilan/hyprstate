@@ -306,4 +306,53 @@ pub(crate) mod tests {
         assert_eq!(workspace_target(&r(3, "3")), "3");
         assert_eq!(workspace_target(&r(-98, "special:magic")), "special:magic");
     }
+
+    #[test]
+    fn identity_names_cover_every_identity() {
+        let mut app = fixture_discovery().windows(&fixture_live().clients)[2]
+            .app
+            .clone();
+        app.executable = None;
+        let names = |app: &AppResolution, id| {
+            let mut app = app.clone();
+            app.identity = id;
+            identity_names(&app)
+        };
+        assert_eq!(
+            names(
+                &app,
+                AppIdentity::Flatpak {
+                    app_id: "a.b".into()
+                }
+            ),
+            ["a.b"]
+        );
+        assert_eq!(
+            names(
+                &app,
+                AppIdentity::Executable {
+                    path: "/bin/htop".into()
+                }
+            ),
+            ["htop"]
+        );
+        assert!(names(&app, AppIdentity::Executable { path: "/".into() }).is_empty());
+        assert_eq!(names(&app, AppIdentity::Class { class: "k".into() }), ["k"]);
+    }
+
+    #[test]
+    fn grouped_windows_share_a_group_index() {
+        let mut live = fixture_live();
+        let pair = vec![
+            live.clients[1].address.clone(),
+            live.clients[3].address.clone(),
+        ];
+        live.clients[1].grouped = pair.clone();
+        live.clients[3].grouped = pair.into_iter().rev().collect();
+        let d = fixture_discovery();
+        let snap = build_snapshot("g".into(), &live, &d.windows(&live.clients));
+        assert_eq!(snap.windows[1].group, Some(0));
+        assert_eq!(snap.windows[3].group, Some(0));
+        assert_eq!(snap.windows[0].group, None);
+    }
 }

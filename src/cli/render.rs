@@ -404,3 +404,366 @@ pub fn worksets(list: &[(String, anyhow::Result<Workset>)], dir: &Path) -> Strin
     }
     o
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::diff::{Changed, FieldChange, WindowRef};
+    use crate::discovery::resolve::{AppIdentity, Confidence, LaunchSpec, LaunchVia};
+    use crate::hyprland::commands::Command;
+    use crate::restore::executor::ItemReport;
+    use crate::restore::matcher::Strategy;
+    use crate::restore::planner::{Placement, PlanItem, Summary};
+    use crate::snapshot::capture::build_snapshot_at;
+    use crate::snapshot::capture::tests::{fixture_discovery, fixture_live};
+    use crate::workset::{Entry, WorkspaceSpec};
+    use jiff::Timestamp;
+    use std::path::PathBuf;
+
+    fn snapshot() -> Snapshot {
+        let live = fixture_live();
+        let wins = fixture_discovery().windows(&live.clients);
+        build_snapshot_at("s".into(), Timestamp::UNIX_EPOCH, &live, &wins)
+    }
+
+    fn home() -> PathBuf {
+        PathBuf::from(std::env::var_os("HOME").unwrap())
+    }
+
+    #[test]
+    fn workspaces_sort_numbered_named_special() {
+        let mut v = [
+            ws_order(-98, "special:magic"),
+            ws_order(0, "web"),
+            ws_order(2, "2"),
+        ];
+        v.sort();
+        assert_eq!(v[0].1, 2);
+        assert_eq!(v[1].2, "web");
+        assert_eq!(v[2].2, "special:magic");
+    }
+
+    #[test]
+    fn paths_under_home_are_shortened() {
+        assert_eq!(home_relative(&home().join("x/y")), "~/x/y");
+        assert_eq!(home_relative(Path::new("/opt/x")), "/opt/x");
+    }
+
+    #[test]
+    fn saved_and_listed_snapshots() {
+        let mut s = snapshot();
+        s.excluded_count = 2;
+        let out = saved(&s, Path::new("/tmp/s.json"));
+        assert!(
+            out.contains("4 windows on 3 workspaces (2 excluded by policy)"),
+            "{out}"
+        );
+
+        let dir = home().join(".local/state/hyprstate/snapshots");
+        assert!(list(&[], &dir).starts_with("No snapshots in ~/"));
+        let listed = Listed {
+            name: "before-reboot".into(),
+            path: dir.join("before-reboot.json"),
+            snapshot: s,
+        };
+        let out = list(&[listed], &dir);
+        assert!(out.starts_with("NAME           CREATED"), "{out}");
+        assert!(out.lines().nth(1).unwrap().ends_with("  4"), "{out}");
+    }
+
+    #[test]
+    fn inspect_summary_and_window_details() {
+        let mut s = snapshot();
+        s.excluded_count = 1;
+        let out = inspect(&s, false);
+        assert!(out.contains("  1 → 2 windows\n"), "{out}");
+        assert!(out.contains("  2 → 1 window\n"), "{out}");
+        assert!(out.contains("(1 excluded by policy)"), "{out}");
+        assert!(out.contains("  chromium ×2\n"), "{out}");
+        assert!(out.contains("  foot\n"), "{out}");
+
+        let w = &mut s.windows;
+        w[0].floating = true;
+        w[0].fullscreen = 1;
+        w[0].pinned = true;
+        w[0].xwayland = true;
+        w[0].title = "x".repeat(80);
+        w[1].app.launch = None;
+        w[1].app.launch_problem = Some("redacted".into());
+        w[3].app.launch = None;
+        w[3].app.launch_problem = None;
+        w[2].app.cwd = Some(home().join("proj"));
+        let out = inspect(&s, true);
+        assert!(out.contains("floating, "), "{out}");
+        assert!(out.contains(", fullscreen 1, pinned, xwayland"), "{out}");
+        assert!(out.contains(&format!("\"{}…\"", "x".repeat(59))), "{out}");
+        assert!(out.contains("launch:     ✗ redacted"), "{out}");
+        assert!(out.contains("launch:     ✗ unknown"), "{out}");
+        assert!(out.contains("launch:     foot"), "{out}");
+        assert!(out.contains("cwd:        ~/proj"), "{out}");
+        assert!(
+            out.contains("app:        webapp:https://web.whatsapp.com/"),
+            "{out}"
+        );
+    }
+
+    fn plan_item(s: &Snapshot, i: usize, action: Action) -> PlanItem {
+        PlanItem {
+            key: s.windows[i].key,
+            label: label(&s.windows[i]),
+            placement: Placement::of(&s.windows[i]),
+            action,
+        }
+    }
+
+    fn reuse(commands: Vec<Command>, ambiguous: bool, confidence: Confidence) -> Action {
+        Action::Reuse {
+            address: "0x1".into(),
+            strategy: Strategy::Class,
+            confidence,
+            ambiguous,
+            commands,
+        }
+    }
+
+    #[test]
+    fn plans_show_every_action() {
+        let s = snapshot();
+        let p = Plan {
+            snapshot: "s".into(),
+            items: vec![
+                plan_item(&s, 0, reuse(vec![], false, Confidence::High)),
+                plan_item(
+                    &s,
+                    1,
+                    reuse(
+                        vec![Command::SetPinned {
+                            address: "0x1".into(),
+                            pinned: true,
+                        }],
+                        true,
+                        Confidence::Low,
+                    ),
+                ),
+                plan_item(
+                    &s,
+                    2,
+                    Action::Launch {
+                        spec: LaunchSpec {
+                            argv: vec!["foot".into()],
+                            cwd: None,
+                            via: LaunchVia::Desktop,
+                        },
+                    },
+                ),
+                plan_item(
+                    &s,
+                    3,
+                    Action::Unresolved {
+                        reason: "gone".into(),
+                    },
+                ),
+                plan_item(
+                    &s,
+                    3,
+                    Action::Excluded {
+                        reason: "policy".into(),
+                    },
+                ),
+            ],
+            workspace_commands: vec![Command::MoveWorkspaceToMonitor {
+                workspace: "1".into(),
+                monitor: "DP-2".into(),
+            }],
+            summary: Summary {
+                reuse: 2,
+                launch: 1,
+                unresolved: 1,
+                excluded: 1,
+                ambiguous: 1,
+                to_move: 1,
+                untouched: 3,
+            },
+        };
+        let out = plan(&p, &s);
+        for want in [
+            "Snapshot: s (",
+            "  ✓ web.whatsapp.com\n",
+            "  ⚠ chromium  (pin)\n      reason: multiple candidate windows\n      match: class, confidence LOW\n",
+            "  + foot  (launch: foot)\n",
+            "  ✗ chromium\n      reason: gone\n",
+            "  - chromium  (skipped: policy)\n",
+            "\nWorkspaces\n  workspace 1 → monitor DP-2\n",
+            "  reuse: 2 (1 to move)\n",
+            "  ambiguous: 1\n  excluded: 1\n  other windows left alone: 3\n",
+        ] {
+            assert!(out.contains(want), "missing {want:?} in\n{out}");
+        }
+        assert!(!out.contains("already matches"));
+    }
+
+    #[test]
+    fn noop_plans_say_so() {
+        let s = snapshot();
+        let mut p = Plan {
+            snapshot: "s".into(),
+            items: vec![],
+            workspace_commands: vec![],
+            summary: Summary::default(),
+        };
+        assert!(plan(&p, &s).ends_with("Desktop already matches the snapshot.\n"));
+        p.snapshot = "workset:dev".into();
+        let out = plan(&p, &s);
+        assert!(out.starts_with("Workset: dev\n"), "{out}");
+        assert!(
+            out.ends_with("Desktop already matches the workset.\n"),
+            "{out}"
+        );
+    }
+
+    #[test]
+    fn reports_show_every_outcome() {
+        let outcomes = [
+            Outcome::Unchanged,
+            Outcome::Placed,
+            Outcome::Launched,
+            Outcome::SpawnFailed,
+            Outcome::TimedOut,
+            Outcome::Failed,
+            Outcome::Unresolved,
+            Outcome::Excluded,
+        ];
+        let items = outcomes
+            .iter()
+            .enumerate()
+            .map(|(i, &outcome)| ItemReport {
+                key: i as u32,
+                label: format!("app{i}"),
+                workspace: if i == 7 {
+                    "special:x".into()
+                } else {
+                    "1".into()
+                },
+                outcome,
+                address: None,
+                detail: (outcome == Outcome::Failed).then(|| "boom".into()),
+                warnings: if i == 1 { vec!["drift".into()] } else { vec![] },
+            })
+            .collect();
+        let r = Report {
+            snapshot: "s".into(),
+            items,
+            workspace_errors: vec!["no monitor".into()],
+            elapsed_ms: 1500,
+        };
+        let out = report(&r);
+        for want in [
+            "  ✓ app0\n",
+            "  ⚠ app1  (moved)\n      warning: drift\n",
+            "  ✓ app2  (launched)\n",
+            "  ✗ app3  (launch failed)\n",
+            "  ✗ app4  (window did not appear)\n",
+            "  ✗ app5  (could not place)\n      reason: boom\n",
+            "  ✗ app6  (unresolved)\n",
+            "Workspace special:x\n  - app7  (excluded)\n",
+            "⚠ workspace: no monitor\n",
+            "  launched: 1\n  reused: 2\n  failed: 4\n  time: 1.5s\n",
+        ] {
+            assert!(out.contains(want), "missing {want:?} in\n{out}");
+        }
+    }
+
+    #[test]
+    fn diffs() {
+        let w = |label: &str, ws: &str| WindowRef {
+            label: label.into(),
+            title: "t".into(),
+            workspace: ws.into(),
+        };
+        let mut d = Diff {
+            from: "a".into(),
+            to: "b".into(),
+            ..Default::default()
+        };
+        assert_eq!(diff(&d), "No differences between a and b\n");
+        d.added.push(w("discord", "2"));
+        d.removed.push(w("slack", "special:chat"));
+        d.changed.push(Changed {
+            window: w("foot", "3"),
+            changes: vec![FieldChange {
+                field: "workspace",
+                from: "1".into(),
+                to: "3".into(),
+            }],
+        });
+        let out = diff(&d);
+        assert!(out.starts_with("a → b\n"), "{out}");
+        assert!(out.contains("Workspace 2\n  + discord  \"t\"\n"), "{out}");
+        assert!(
+            out.contains("Workspace special:chat\n  - slack  \"t\"\n"),
+            "{out}"
+        );
+        assert!(out.contains("foot  \"t\"\n  workspace: 1 → 3\n"), "{out}");
+    }
+
+    fn workset(n: usize) -> Workset {
+        let e = Entry {
+            workspace: WorkspaceSpec::Id(1),
+            command: "foot".into(),
+            cwd: None,
+            class: None,
+            title_contains: None,
+            reuse: true,
+            floating: false,
+            position: None,
+            size: None,
+        };
+        Workset {
+            description: Some("dev".into()),
+            windows: vec![e; n],
+        }
+    }
+
+    #[test]
+    fn saved_worksets() {
+        let p = Path::new("/w/dev.toml");
+        let out = workset_saved("dev", &workset(1), p, None, &[]);
+        assert_eq!(out, "Saved workset dev (1 window)\n  /w/dev.toml\n");
+        let out = workset_saved(
+            "dev",
+            &workset(2),
+            p,
+            Some(Path::new("/w/dev.toml.bak")),
+            &["signal on workspace 4: redacted".into()],
+        );
+        assert!(out.starts_with("Saved workset dev (2 windows)\n"), "{out}");
+        assert!(
+            out.contains("  previous version: /w/dev.toml.bak\n"),
+            "{out}"
+        );
+        assert!(
+            out.contains("  ✗ signal on workspace 4: redacted\n"),
+            "{out}"
+        );
+    }
+
+    #[test]
+    fn listed_worksets() {
+        let dir = Path::new("/w");
+        assert!(worksets(&[], dir).starts_with("No worksets in /w\n"));
+        let list = vec![
+            ("dev".to_string(), Ok(workset(2))),
+            ("broken".to_string(), Err(anyhow::anyhow!("bad toml"))),
+        ];
+        let out = worksets(&list, dir);
+        assert!(out.contains("dev     2        dev\n"), "{out}");
+        assert!(out.contains("broken  ✗ invalid: bad toml\n"), "{out}");
+    }
+
+    #[test]
+    fn unused_identity_kinds_still_label() {
+        let mut s = snapshot();
+        s.windows[0].app.identity = AppIdentity::Class { class: "k".into() };
+        assert!(inspect(&s, false).contains("  k\n"));
+    }
+}
