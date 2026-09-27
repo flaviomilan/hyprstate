@@ -1,5 +1,9 @@
 # hyprstate
 
+[![CI](https://github.com/flaviomilan/hyprstate/actions/workflows/ci.yml/badge.svg)](https://github.com/flaviomilan/hyprstate/actions/workflows/ci.yml)
+[![License: MIT OR Apache-2.0](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](#license)
+[![Hyprland 0.55+](https://img.shields.io/badge/Hyprland-0.55%2B-58e1ff.svg)](https://hyprland.org)
+
 Capture, inspect, diff and restore your Hyprland desktop.
 
 You describe how the desktop should look (a snapshot), and `hyprstate` makes
@@ -19,6 +23,16 @@ hyprstate workset save NAME [-w WORKSPACE]...  live desktop (or some workspaces)
 hyprstate workset open NAME [--dry-run]        reuse, launch and place its windows
 hyprstate workset list | delete NAME
 ```
+
+## Install
+
+Requires a recent stable Rust toolchain.
+
+```
+cargo install --locked --git https://github.com/flaviomilan/hyprstate
+```
+
+## Usage
 
 Every command takes `--json`. Logs go to stderr (`-v`, `-vv`, `--log-format json`).
 `restore` exits with 0 when everything was restored, 2 when some windows
@@ -189,3 +203,14 @@ cargo clippy --all-targets
 ```
 
 `tests/fixtures/` contains real `hyprctl -j` output, with titles redacted.
+
+Contributions are welcome; see [CONTRIBUTING.md](CONTRIBUTING.md).
+
+## License
+
+Licensed under either of [Apache License, Version 2.0](LICENSE-APACHE) or
+[MIT license](LICENSE-MIT) at your option.
+
+Unless you explicitly state otherwise, any contribution intentionally submitted
+for inclusion in this project by you, as defined in the Apache-2.0 license,
+shall be dual licensed as above, without any additional terms or conditions.

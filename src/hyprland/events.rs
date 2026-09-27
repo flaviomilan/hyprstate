@@ -11,9 +11,19 @@ use super::ipc::instance_dir;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Event {
     /// `openwindow>>ADDRESS,WORKSPACENAME,CLASS,TITLE` (address without 0x)
-    OpenWindow { address: String, workspace: String, class: String, title: String },
-    CloseWindow { address: String },
-    Other { name: String, data: String },
+    OpenWindow {
+        address: String,
+        workspace: String,
+        class: String,
+        title: String,
+    },
+    CloseWindow {
+        address: String,
+    },
+    Other {
+        name: String,
+        data: String,
+    },
 }
 
 pub fn parse_event(line: &str) -> Option<Event> {
@@ -28,15 +38,24 @@ pub fn parse_event(line: &str) -> Option<Event> {
                 title: parts.next().unwrap_or("").to_string(),
             }
         }
-        "closewindow" => Event::CloseWindow { address: normalize_address(data) },
-        _ => Event::Other { name: name.to_string(), data: data.to_string() },
+        "closewindow" => Event::CloseWindow {
+            address: normalize_address(data),
+        },
+        _ => Event::Other {
+            name: name.to_string(),
+            data: data.to_string(),
+        },
     })
 }
 
 /// Hyprland events omit the `0x` that `j/clients` includes.
 pub fn normalize_address(a: &str) -> String {
     let a = a.trim();
-    if a.starts_with("0x") { a.to_string() } else { format!("0x{a}") }
+    if a.starts_with("0x") {
+        a.to_string()
+    } else {
+        format!("0x{a}")
+    }
 }
 
 pub trait EventSource {
@@ -54,7 +73,10 @@ impl HyprEvents {
         let path = instance_dir()?.join(".socket2.sock");
         let stream = UnixStream::connect(&path)
             .with_context(|| format!("connecting to {}", path.display()))?;
-        Ok(Self { reader: BufReader::new(stream), line: String::new() })
+        Ok(Self {
+            reader: BufReader::new(stream),
+            line: String::new(),
+        })
     }
 }
 
@@ -103,7 +125,9 @@ mod tests {
         );
         assert_eq!(
             parse_event("closewindow>>abc").unwrap(),
-            Event::CloseWindow { address: "0xabc".into() }
+            Event::CloseWindow {
+                address: "0xabc".into()
+            }
         );
         assert!(parse_event("garbage").is_none());
     }

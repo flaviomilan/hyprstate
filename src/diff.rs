@@ -45,7 +45,11 @@ impl Diff {
 }
 
 fn wref(r: &WindowRecord) -> WindowRef {
-    WindowRef { label: label(r), title: r.title.clone(), workspace: r.workspace.name.clone() }
+    WindowRef {
+        label: label(r),
+        title: r.title.clone(),
+        workspace: r.workspace.name.clone(),
+    }
 }
 
 pub fn diff(a: &Snapshot, b: &Snapshot) -> Diff {
@@ -56,26 +60,61 @@ pub fn diff(a: &Snapshot, b: &Snapshot) -> Diff {
         let mut changes = Vec::new();
         let mut field = |name, from: String, to: String| {
             if from != to {
-                changes.push(FieldChange { field: name, from, to });
+                changes.push(FieldChange {
+                    field: name,
+                    from,
+                    to,
+                });
             }
         };
-        field("workspace", x.workspace.name.clone(), y.workspace.name.clone());
-        field("monitor", x.monitor.clone().unwrap_or_default(), y.monitor.clone().unwrap_or_default());
+        field(
+            "workspace",
+            x.workspace.name.clone(),
+            y.workspace.name.clone(),
+        );
+        field(
+            "monitor",
+            x.monitor.clone().unwrap_or_default(),
+            y.monitor.clone().unwrap_or_default(),
+        );
         field("floating", x.floating.to_string(), y.floating.to_string());
-        field("fullscreen", x.fullscreen.to_string(), y.fullscreen.to_string());
+        field(
+            "fullscreen",
+            x.fullscreen.to_string(),
+            y.fullscreen.to_string(),
+        );
         if x.floating && y.floating {
-            field("position", format!("{},{}", x.at[0], x.at[1]), format!("{},{}", y.at[0], y.at[1]));
-            field("size", format!("{}x{}", x.size[0], x.size[1]), format!("{}x{}", y.size[0], y.size[1]));
+            field(
+                "position",
+                format!("{},{}", x.at[0], x.at[1]),
+                format!("{},{}", y.at[0], y.at[1]),
+            );
+            field(
+                "size",
+                format!("{}x{}", x.size[0], x.size[1]),
+                format!("{}x{}", y.size[0], y.size[1]),
+            );
         }
         if !changes.is_empty() {
-            changed.push(Changed { window: wref(y), changes });
+            changed.push(Changed {
+                window: wref(y),
+                changes,
+            });
         }
     }
     Diff {
         from: a.name.clone(),
         to: b.name.clone(),
-        added: assignment.unmatched_candidates.iter().map(|&i| wref(&b.windows[i])).collect(),
-        removed: assignment.unmatched_expected.iter().map(|&i| wref(&a.windows[i])).collect(),
+        added: assignment
+            .unmatched_candidates
+            .iter()
+            .map(|&i| wref(&b.windows[i]))
+            .collect(),
+        removed: assignment
+            .unmatched_expected
+            .iter()
+            .map(|&i| wref(&a.windows[i]))
+            .collect(),
         changed,
     }
 }
@@ -97,10 +136,15 @@ mod tests {
 
         let mut b = a.clone();
         b.name = "b".into();
-        b.windows[2].workspace = WorkspaceRef { id: 1, name: "1".into() }; // foot 3 → 1
+        b.windows[2].workspace = WorkspaceRef {
+            id: 1,
+            name: "1".into(),
+        }; // foot 3 → 1
         let whatsapp = b.windows.remove(0); // removed
         let mut extra = whatsapp.clone();
-        extra.app.identity = crate::discovery::resolve::AppIdentity::Desktop { id: "discord".into() };
+        extra.app.identity = crate::discovery::resolve::AppIdentity::Desktop {
+            id: "discord".into(),
+        };
         extra.class = "discord".into();
         extra.initial_class = "discord".into();
         b.windows.push(extra); // added
@@ -113,7 +157,11 @@ mod tests {
         assert_eq!(d.changed[0].window.label, "foot");
         assert_eq!(
             d.changed[0].changes,
-            vec![FieldChange { field: "workspace", from: "3".into(), to: "1".into() }]
+            vec![FieldChange {
+                field: "workspace",
+                from: "3".into(),
+                to: "1".into()
+            }]
         );
     }
 }

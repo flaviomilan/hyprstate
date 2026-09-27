@@ -22,7 +22,10 @@ pub fn parse_class(class: &str) -> Option<WebAppClass> {
     if !app_name.contains('_') || !app_name.contains('.') || profile.is_empty() {
         return None;
     }
-    Some(WebAppClass { app_name: app_name.to_string(), profile: profile.to_string() })
+    Some(WebAppClass {
+        app_name: app_name.to_string(),
+        profile: profile.to_string(),
+    })
 }
 
 /// Chromium's class-form app name for a URL (`https://a.b/c/` → `a.b__c_`).
@@ -64,7 +67,9 @@ pub fn url_in_argv(argv: &[String]) -> Option<&str> {
 /// Desktop entry that launches this web app.
 pub fn find_desktop<'a>(idx: &'a DesktopIndex, wa: &WebAppClass) -> Option<&'a DesktopEntry> {
     idx.entries().iter().find(|e| {
-        url_in_argv(&e.exec).and_then(class_name_for_url).is_some_and(|n| n == wa.app_name)
+        url_in_argv(&e.exec)
+            .and_then(class_name_for_url)
+            .is_some_and(|n| n == wa.app_name)
     })
 }
 
@@ -79,7 +84,10 @@ mod tests {
         let wa = parse_class("chrome-web.whatsapp.com__-Default").unwrap();
         assert_eq!(wa.app_name, "web.whatsapp.com__");
         assert_eq!(wa.profile, "Default");
-        assert_eq!(url_for(&wa, "web.whatsapp.com_/"), "https://web.whatsapp.com/");
+        assert_eq!(
+            url_for(&wa, "web.whatsapp.com_/"),
+            "https://web.whatsapp.com/"
+        );
         assert_eq!(url_for(&wa, "WhatsApp"), "https://web.whatsapp.com/");
         assert!(parse_class("chromium").is_none());
         assert!(parse_class("chrome-foo").is_none());
@@ -90,7 +98,10 @@ mod tests {
         let wa = parse_class("chrome-my-site.example.com__app_x-Profile_1").unwrap();
         assert_eq!(wa.app_name, "my-site.example.com__app_x");
         assert_eq!(wa.profile, "Profile_1");
-        assert_eq!(url_for(&wa, "my-site.example.com_/app_x"), "https://my-site.example.com/app_x");
+        assert_eq!(
+            url_for(&wa, "my-site.example.com_/app_x"),
+            "https://my-site.example.com/app_x"
+        );
         assert_eq!(
             class_name_for_url("https://my-site.example.com/app_x?q=1").unwrap(),
             "my-site.example.com__app_x"

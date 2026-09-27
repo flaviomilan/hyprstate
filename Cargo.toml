@@ -2,6 +2,12 @@
 name = "hyprstate"
 version = "0.1.0"
 edition = "2024"
+description = "Save and restore your Hyprland desktop: snapshots, diffs and idempotent restores of windows and workspaces"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/flaviomilan/hyprstate"
+readme = "README.md"
+keywords = ["hyprland", "wayland", "session", "workspace", "restore"]
+categories = ["command-line-utilities"]
 
 [dependencies]
 anyhow = "1.0.104"

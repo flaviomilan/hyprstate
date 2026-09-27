@@ -47,7 +47,9 @@ impl WorksetStore {
     pub fn default_dir() -> Result<PathBuf> {
         let base = match std::env::var_os("XDG_CONFIG_HOME") {
             Some(d) if !d.is_empty() => PathBuf::from(d),
-            _ => PathBuf::from(std::env::var_os("HOME").context("HOME is not set")?).join(".config"),
+            _ => {
+                PathBuf::from(std::env::var_os("HOME").context("HOME is not set")?).join(".config")
+            }
         };
         Ok(base.join("hyprstate").join("worksets"))
     }
@@ -74,7 +76,8 @@ impl WorksetStore {
         if !path.exists() {
             bail!("workset '{name}' not found (expected {})", path.display());
         }
-        let raw = std::fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
+        let raw = std::fs::read_to_string(&path)
+            .with_context(|| format!("reading {}", path.display()))?;
         toml::from_str(&raw).with_context(|| format!("parsing {}", path.display()))
     }
 
@@ -128,11 +131,18 @@ impl WorksetStore {
             .filter(|n| validate_name(n).is_ok())
             .collect();
         names.sort();
-        Ok(names.into_iter().map(|n| { let ws = self.load(&n); (n, ws) }).collect())
+        Ok(names
+            .into_iter()
+            .map(|n| {
+                let ws = self.load(&n);
+                (n, ws)
+            })
+            .collect())
     }
 
     fn write(&self, path: &Path, content: &str) -> Result<()> {
-        std::fs::create_dir_all(&self.dir).with_context(|| format!("creating {}", self.dir.display()))?;
+        std::fs::create_dir_all(&self.dir)
+            .with_context(|| format!("creating {}", self.dir.display()))?;
         let tmp = path.with_extension("toml.tmp");
         std::fs::write(&tmp, content)?;
         std::fs::rename(&tmp, path)?;

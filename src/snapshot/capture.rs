@@ -48,7 +48,12 @@ impl Discovery {
         exclusions: Exclusions,
         read_proc: impl Fn(i32) -> ProcessInfo + 'static,
     ) -> Self {
-        Self { index, env, exclusions, read_proc: Box::new(read_proc) }
+        Self {
+            index,
+            env,
+            exclusions,
+            read_proc: Box::new(read_proc),
+        }
     }
 
     pub fn window(&self, c: &Client) -> ResolvedWindow {
@@ -66,12 +71,20 @@ impl Discovery {
             title: &c.title,
             app_ids: &ids,
         });
-        ResolvedWindow { client: c.clone(), app, excluded }
+        ResolvedWindow {
+            client: c.clone(),
+            app,
+            excluded,
+        }
     }
 
     /// Mapped windows only; unmapped surfaces are not user-visible windows.
     pub fn windows(&self, clients: &[Client]) -> Vec<ResolvedWindow> {
-        clients.iter().filter(|c| c.mapped).map(|c| self.window(c)).collect()
+        clients
+            .iter()
+            .filter(|c| c.mapped)
+            .map(|c| self.window(c))
+            .collect()
     }
 }
 
@@ -210,7 +223,10 @@ pub(crate) mod tests {
         let entries = [
             ("chromium", "Exec=/usr/bin/chromium %U"),
             ("foot", "Exec=foot"),
-            ("WhatsApp", "Exec=omarchy-launch-webapp https://web.whatsapp.com/"),
+            (
+                "WhatsApp",
+                "Exec=omarchy-launch-webapp https://web.whatsapp.com/",
+            ),
         ]
         .into_iter()
         .map(|(id, body)| {
@@ -252,7 +268,10 @@ pub(crate) mod tests {
         assert_eq!(snap.windows.len(), 4);
         assert_eq!(snap.hyprland.version, "0.56.2");
         assert_eq!(snap.windows[0].monitor.as_deref(), Some("DP-1"));
-        assert!(matches!(snap.windows[0].app.identity, AppIdentity::WebApp { .. }));
+        assert!(matches!(
+            snap.windows[0].app.identity,
+            AppIdentity::WebApp { .. }
+        ));
         let ws1 = snap.workspaces.iter().find(|w| w.id == 1).unwrap();
         assert_eq!(ws1.windows, 2);
         // round trip
@@ -267,7 +286,12 @@ pub(crate) mod tests {
         live.clients[2].class = "org.keepassxc.KeePassXC".into();
         live.clients[2].initial_class = "org.keepassxc.KeePassXC".into();
         let d = fixture_discovery();
-        let snap = build_snapshot_at("t".into(), Timestamp::UNIX_EPOCH, &live, &d.windows(&live.clients));
+        let snap = build_snapshot_at(
+            "t".into(),
+            Timestamp::UNIX_EPOCH,
+            &live,
+            &d.windows(&live.clients),
+        );
         assert_eq!(snap.windows.len(), 3);
         assert_eq!(snap.excluded_count, 1);
         assert!(!serde_json::to_string(&snap).unwrap().contains("KeePassXC"));
@@ -275,7 +299,10 @@ pub(crate) mod tests {
 
     #[test]
     fn workspace_targets() {
-        let r = |id, name: &str| WorkspaceRef { id, name: name.into() };
+        let r = |id, name: &str| WorkspaceRef {
+            id,
+            name: name.into(),
+        };
         assert_eq!(workspace_target(&r(3, "3")), "3");
         assert_eq!(workspace_target(&r(-98, "special:magic")), "special:magic");
     }

@@ -41,7 +41,10 @@ impl HyprSocket {
         if !path.exists() {
             bail!("Hyprland socket not found at {}", path.display());
         }
-        Ok(Self { path, dialect: OnceCell::new() })
+        Ok(Self {
+            path,
+            dialect: OnceCell::new(),
+        })
     }
 
     pub fn request(&self, msg: &str) -> Result<String> {
@@ -56,10 +59,12 @@ impl HyprSocket {
 
     /// Lua-config Hyprland answers `ok` to a Lua no-op; hyprlang rejects it.
     pub fn dialect(&self) -> Dialect {
-        *self.dialect.get_or_init(|| match self.request("dispatch hl.dsp.no_op()") {
-            Ok(r) if r.trim() == "ok" => Dialect::Lua,
-            _ => Dialect::Legacy,
-        })
+        *self
+            .dialect
+            .get_or_init(|| match self.request("dispatch hl.dsp.no_op()") {
+                Ok(r) if r.trim() == "ok" => Dialect::Lua,
+                _ => Dialect::Legacy,
+            })
     }
 
     fn json<T: DeserializeOwned>(&self, query: &str) -> Result<T> {
@@ -79,7 +84,13 @@ impl Compositor for HyprSocket {
         let workspaces: Vec<Workspace> = self.json("workspaces")?;
         let active_workspace: WorkspaceRef = self.json("activeworkspace")?;
         let clients: Vec<Client> = self.json("clients")?;
-        Ok(LiveState { version, monitors, workspaces, active_workspace, clients })
+        Ok(LiveState {
+            version,
+            monitors,
+            workspaces,
+            active_workspace,
+            clients,
+        })
     }
 
     fn dispatch(&self, commands: &[Command]) -> Result<Vec<Result<(), String>>> {
@@ -97,7 +108,11 @@ impl Compositor for HyprSocket {
                         errs.push(reply.to_string());
                     }
                 }
-                Ok(if errs.is_empty() { Ok(()) } else { Err(errs.join("; ")) })
+                Ok(if errs.is_empty() {
+                    Ok(())
+                } else {
+                    Err(errs.join("; "))
+                })
             })
             .collect()
     }

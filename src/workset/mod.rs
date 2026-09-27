@@ -12,7 +12,9 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 use crate::discovery::desktop::DesktopIndex;
-use crate::discovery::resolve::{AppIdentity, AppResolution, Confidence, LaunchSpec, LaunchVia, Source};
+use crate::discovery::resolve::{
+    AppIdentity, AppResolution, Confidence, LaunchSpec, LaunchVia, Source,
+};
 use crate::discovery::webapp;
 use crate::hyprland::models::WorkspaceRef;
 use crate::snapshot::capture::ResolvedWindow;
@@ -75,21 +77,34 @@ pub enum WorkspaceSpec {
 impl WorkspaceSpec {
     pub fn to_ref(&self) -> WorkspaceRef {
         match self {
-            Self::Id(id) => WorkspaceRef { id: *id, name: id.to_string() },
+            Self::Id(id) => WorkspaceRef {
+                id: *id,
+                name: id.to_string(),
+            },
             Self::Name(n) => {
                 if let Ok(id) = n.parse::<i64>() {
-                    return WorkspaceRef { id, name: n.clone() };
+                    return WorkspaceRef {
+                        id,
+                        name: n.clone(),
+                    };
                 }
                 let name = n.strip_prefix("name:").unwrap_or(n);
                 // Named/special workspace ids are assigned by Hyprland; 0 means
                 // "compare by name" (see `WorkspaceRef::same_as`).
-                WorkspaceRef { id: 0, name: name.to_string() }
+                WorkspaceRef {
+                    id: 0,
+                    name: name.to_string(),
+                }
             }
         }
     }
 
     fn from_ref(ws: &WorkspaceRef) -> Self {
-        if ws.id > 0 { Self::Id(ws.id) } else { Self::Name(ws.name.clone()) }
+        if ws.id > 0 {
+            Self::Id(ws.id)
+        } else {
+            Self::Name(ws.name.clone())
+        }
     }
 }
 
@@ -100,23 +115,33 @@ fn home() -> Option<PathBuf> {
 pub fn expand_tilde(s: &str) -> String {
     match (s.strip_prefix("~/"), home()) {
         (Some(rest), Some(h)) => h.join(rest).to_string_lossy().into_owned(),
-        _ if s == "~" => home().map(|h| h.to_string_lossy().into_owned()).unwrap_or_else(|| s.into()),
+        _ if s == "~" => home()
+            .map(|h| h.to_string_lossy().into_owned())
+            .unwrap_or_else(|| s.into()),
         _ => s.to_string(),
     }
 }
 
 fn compress_tilde(p: &Path) -> String {
     match home() {
-        Some(h) if p.starts_with(&h) && p != h => format!("~/{}", p.strip_prefix(&h).unwrap().display()),
+        Some(h) if p.starts_with(&h) && p != h => {
+            format!("~/{}", p.strip_prefix(&h).unwrap().display())
+        }
         _ => p.display().to_string(),
     }
 }
 
 /// What application a command opens, so an already open window of it can be
 /// recognised. Mirrors the signals `discovery::resolve` uses on live windows.
-fn identity_for(argv: &[String], idx: &DesktopIndex) -> (AppIdentity, Option<String>, Option<String>) {
+fn identity_for(
+    argv: &[String],
+    idx: &DesktopIndex,
+) -> (AppIdentity, Option<String>, Option<String>) {
     let prog = argv.first().map(String::as_str).unwrap_or_default();
-    let base = Path::new(prog).file_name().and_then(|b| b.to_str()).unwrap_or(prog);
+    let base = Path::new(prog)
+        .file_name()
+        .and_then(|b| b.to_str())
+        .unwrap_or(prog);
 
     let is_webapp = base == "omarchy-launch-webapp" || argv.iter().any(|a| a.starts_with("--app="));
     if is_webapp && let Some(url) = webapp::url_in_argv(argv).and_then(canonical_url) {
@@ -129,7 +154,11 @@ fn identity_for(argv: &[String], idx: &DesktopIndex) -> (AppIdentity, Option<Str
         return (AppIdentity::Flatpak { app_id: id.clone() }, None, None);
     }
     if let Some(e) = idx.get(base).or_else(|| idx.by_program(base)) {
-        return (AppIdentity::Desktop { id: e.id.clone() }, Some(e.id.clone()), e.startup_wm_class.clone());
+        return (
+            AppIdentity::Desktop { id: e.id.clone() },
+            Some(e.id.clone()),
+            e.startup_wm_class.clone(),
+        );
     }
     let path = crate::discovery::which(prog).unwrap_or_else(|| PathBuf::from(prog));
     (AppIdentity::Executable { path }, None, None)
@@ -152,15 +181,26 @@ fn canonical_url(url: &str) -> Option<String> {
 impl Workset {
     /// Expected windows, in the shape the restore engine consumes.
     pub fn to_snapshot(&self, name: &str, idx: &DesktopIndex) -> Snapshot {
-        let windows = self.windows.iter().enumerate().map(|(i, e)| e.to_record(i as u32, idx)).collect();
+        let windows = self
+            .windows
+            .iter()
+            .enumerate()
+            .map(|(i, e)| e.to_record(i as u32, idx))
+            .collect();
         Snapshot {
             schema_version: SCHEMA_VERSION,
             name: format!("workset:{name}"),
             created_at: jiff::Timestamp::now(),
-            hyprland: HyprlandInfo { version: String::new(), commit: String::new() },
+            hyprland: HyprlandInfo {
+                version: String::new(),
+                commit: String::new(),
+            },
             monitors: Vec::new(),
             workspaces: Vec::new(),
-            active_workspace: WorkspaceRef { id: 0, name: String::new() },
+            active_workspace: WorkspaceRef {
+                id: 0,
+                name: String::new(),
+            },
             windows,
             excluded_count: 0,
         }
@@ -173,12 +213,20 @@ impl Workset {
         let mut sorted: Vec<&ResolvedWindow> = windows
             .iter()
             .filter(|w| w.excluded.is_none())
-            .filter(|w| wanted.is_empty() || wanted.iter().any(|ws| ws.same_as(&w.client.workspace)))
+            .filter(|w| {
+                wanted.is_empty() || wanted.iter().any(|ws| ws.same_as(&w.client.workspace))
+            })
             .collect();
         // Stable, readable order: by workspace, then top-left first.
         sorted.sort_by_key(|w| {
             let ws = &w.client.workspace;
-            (ws.id <= 0, ws.id, ws.name.clone(), w.client.at[1], w.client.at[0])
+            (
+                ws.id <= 0,
+                ws.id,
+                ws.name.clone(),
+                w.client.at[1],
+                w.client.at[0],
+            )
         });
         let home = home();
         let mut skipped = Vec::new();
@@ -186,11 +234,23 @@ impl Workset {
         for w in sorted {
             let c = &w.client;
             let Some(launch) = &w.app.launch else {
-                let why = w.app.launch_problem.as_deref().unwrap_or("no launch command");
-                skipped.push(format!("{} on workspace {}: {why}", c.class, c.workspace.name));
+                let why = w
+                    .app
+                    .launch_problem
+                    .as_deref()
+                    .unwrap_or("no launch command");
+                skipped.push(format!(
+                    "{} on workspace {}: {why}",
+                    c.class, c.workspace.name
+                ));
                 continue;
             };
-            let cwd = w.app.cwd.as_deref().filter(|d| Some(*d) != home.as_deref()).map(compress_tilde);
+            let cwd = w
+                .app
+                .cwd
+                .as_deref()
+                .filter(|d| Some(*d) != home.as_deref())
+                .map(compress_tilde);
             entries.push(Entry {
                 workspace: WorkspaceSpec::from_ref(&c.workspace),
                 command: shell_words::join(&launch.argv),
@@ -203,7 +263,13 @@ impl Workset {
                 size: c.floating.then_some(c.size),
             });
         }
-        (Self { description: None, windows: entries }, skipped)
+        (
+            Self {
+                description: None,
+                windows: entries,
+            },
+            skipped,
+        )
     }
 }
 
@@ -238,7 +304,11 @@ impl Entry {
                 identity,
                 confidence: Confidence::High,
                 source: Source::Workset,
-                launch: problem.is_none().then(|| LaunchSpec { argv, cwd: cwd.clone(), via: LaunchVia::Workset }),
+                launch: problem.is_none().then(|| LaunchSpec {
+                    argv,
+                    cwd: cwd.clone(),
+                    via: LaunchVia::Workset,
+                }),
                 launch_problem: problem,
                 desktop_entry,
                 executable: None,
@@ -266,7 +336,10 @@ mod tests {
         DesktopIndex::from_entries(vec![
             e("foot", "Exec=foot"),
             e("code", "Exec=/usr/bin/code %F\nStartupWMClass=Code"),
-            e("WhatsApp", "Exec=omarchy-launch-webapp https://web.whatsapp.com/"),
+            e(
+                "WhatsApp",
+                "Exec=omarchy-launch-webapp https://web.whatsapp.com/",
+            ),
         ])
     }
 
@@ -302,23 +375,54 @@ mod tests {
         let w = &snap.windows;
         assert_eq!(snap.name, "workset:recsys");
 
-        assert_eq!(w[0].app.identity, AppIdentity::Desktop { id: "code".into() });
+        assert_eq!(
+            w[0].app.identity,
+            AppIdentity::Desktop { id: "code".into() }
+        );
         assert_eq!(w[0].initial_class, "Code");
         let argv = &w[0].app.launch.as_ref().unwrap().argv;
         assert!(argv[1].ends_with("/projects/recsys") && !argv[1].starts_with('~'));
 
-        assert!(w[1].require.cwd.as_ref().unwrap().ends_with("projects/recsys"));
-        assert_eq!(w[2].app.identity, AppIdentity::WebApp { url: "https://web.whatsapp.com/".into() });
-        assert_eq!(w[2].workspace, WorkspaceRef { id: 0, name: "special:chat".into() });
-        assert_eq!(w[3].app.identity, AppIdentity::Flatpak { app_id: "com.spotify.Client".into() });
+        assert!(
+            w[1].require
+                .cwd
+                .as_ref()
+                .unwrap()
+                .ends_with("projects/recsys")
+        );
+        assert_eq!(
+            w[2].app.identity,
+            AppIdentity::WebApp {
+                url: "https://web.whatsapp.com/".into()
+            }
+        );
+        assert_eq!(
+            w[2].workspace,
+            WorkspaceRef {
+                id: 0,
+                name: "special:chat".into()
+            }
+        );
+        assert_eq!(
+            w[3].app.identity,
+            AppIdentity::Flatpak {
+                app_id: "com.spotify.Client".into()
+            }
+        );
         assert!(w[3].floating && w[3].require.always_launch);
         assert_eq!((w[3].at, w[3].size), ([100, 100], [800, 600]));
     }
 
     #[test]
     fn rejects_unknown_keys_and_reports_bad_commands() {
-        assert!(toml::from_str::<Workset>("[[windows]]\nworkspace = 1\ncommand = \"x\"\nworkspce = 2\n").is_err());
-        let ws: Workset = toml::from_str("[[windows]]\nworkspace = 1\ncommand = \"foo 'unclosed\"\n").unwrap();
+        assert!(
+            toml::from_str::<Workset>(
+                "[[windows]]\nworkspace = 1\ncommand = \"x\"\nworkspce = 2\n"
+            )
+            .is_err()
+        );
+        let ws: Workset =
+            toml::from_str("[[windows]]\nworkspace = 1\ncommand = \"foo 'unclosed\"\n").unwrap();
         let r = &ws.to_snapshot("x", &index()).windows[0];
         assert!(r.app.launch.is_none() && r.app.launch_problem.is_some());
     }
@@ -349,17 +453,23 @@ mod tests {
         };
 
         // The fixture terminal's shell is in /home/me/proj, on workspace 3.
-        let same_dir = run("[[windows]]\nworkspace = 3\ncommand = \"foot\"\ncwd = \"/home/me/proj\"\n");
+        let same_dir =
+            run("[[windows]]\nworkspace = 3\ncommand = \"foot\"\ncwd = \"/home/me/proj\"\n");
         assert!(matches!(&same_dir[0], Action::Reuse { commands, .. } if commands.is_empty()));
 
-        let other_dir = run("[[windows]]\nworkspace = 3\ncommand = \"foot\"\ncwd = \"/home/me/other\"\n");
-        assert!(matches!(&other_dir[0], Action::Launch { spec } if spec.cwd.as_deref() == Some(Path::new("/home/me/other"))));
+        let other_dir =
+            run("[[windows]]\nworkspace = 3\ncommand = \"foot\"\ncwd = \"/home/me/other\"\n");
+        assert!(
+            matches!(&other_dir[0], Action::Launch { spec } if spec.cwd.as_deref() == Some(Path::new("/home/me/other")))
+        );
 
         let never = run("[[windows]]\nworkspace = 3\ncommand = \"foot\"\nreuse = false\n");
         assert!(matches!(&never[0], Action::Launch { .. }));
 
         // The open WhatsApp PWA is reused and moved, not launched twice.
-        let pwa = run("[[windows]]\nworkspace = 5\ncommand = \"omarchy-launch-webapp https://web.whatsapp.com/\"\n");
+        let pwa = run(
+            "[[windows]]\nworkspace = 5\ncommand = \"omarchy-launch-webapp https://web.whatsapp.com/\"\n",
+        );
         assert!(matches!(&pwa[0], Action::Reuse { commands, .. } if commands.len() == 1));
     }
 
@@ -368,10 +478,14 @@ mod tests {
         use crate::snapshot::capture::tests::{fixture_discovery, fixture_live};
         let live = fixture_live();
         let wins = fixture_discovery().windows(&live.clients);
-        let (ws, skipped) = Workset::from_live(&wins, &[WorkspaceSpec::Id(2), WorkspaceSpec::Id(3)]);
+        let (ws, skipped) =
+            Workset::from_live(&wins, &[WorkspaceSpec::Id(2), WorkspaceSpec::Id(3)]);
         assert!(skipped.is_empty());
         assert_eq!(ws.windows.len(), 2);
-        assert_eq!(ws.windows[0].command, "omarchy-launch-webapp https://web.whatsapp.com/");
+        assert_eq!(
+            ws.windows[0].command,
+            "omarchy-launch-webapp https://web.whatsapp.com/"
+        );
         assert_eq!(ws.windows[1].cwd.as_deref(), Some("/home/me/proj"));
         let text = toml::to_string_pretty(&ws).unwrap();
         assert_eq!(toml::from_str::<Workset>(&text).unwrap(), ws);

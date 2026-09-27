@@ -20,14 +20,42 @@ pub enum Dialect {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(tag = "op", rename_all = "snake_case")]
 pub enum Command {
-    MoveToWorkspace { address: String, workspace: String },
-    SetFloating { address: String, floating: bool },
-    MoveExact { address: String, x: i32, y: i32 },
-    ResizeExact { address: String, w: i32, h: i32 },
-    SetPinned { address: String, pinned: bool },
-    Fullscreen { address: String, internal: u8, client: u8 },
-    MoveWorkspaceToMonitor { workspace: String, monitor: String },
-    Exec { argv: Vec<String>, cwd: Option<PathBuf>, workspace: Option<String> },
+    MoveToWorkspace {
+        address: String,
+        workspace: String,
+    },
+    SetFloating {
+        address: String,
+        floating: bool,
+    },
+    MoveExact {
+        address: String,
+        x: i32,
+        y: i32,
+    },
+    ResizeExact {
+        address: String,
+        w: i32,
+        h: i32,
+    },
+    SetPinned {
+        address: String,
+        pinned: bool,
+    },
+    Fullscreen {
+        address: String,
+        internal: u8,
+        client: u8,
+    },
+    MoveWorkspaceToMonitor {
+        workspace: String,
+        monitor: String,
+    },
+    Exec {
+        argv: Vec<String>,
+        cwd: Option<PathBuf>,
+        workspace: Option<String>,
+    },
 }
 
 impl fmt::Display for Command {
@@ -36,10 +64,14 @@ impl fmt::Display for Command {
         match self {
             Self::MoveToWorkspace { workspace, .. } => write!(f, "move → workspace {workspace}"),
             Self::SetFloating { floating: true, .. } => write!(f, "float"),
-            Self::SetFloating { floating: false, .. } => write!(f, "tile"),
+            Self::SetFloating {
+                floating: false, ..
+            } => write!(f, "tile"),
             Self::MoveExact { x, y, .. } => write!(f, "position {x},{y}"),
             Self::ResizeExact { w, h, .. } => write!(f, "size {w}x{h}"),
-            Self::SetPinned { pinned, .. } => write!(f, "{}", if *pinned { "pin" } else { "unpin" }),
+            Self::SetPinned { pinned, .. } => {
+                write!(f, "{}", if *pinned { "pin" } else { "unpin" })
+            }
             Self::Fullscreen { internal, .. } => write!(f, "fullscreen state {internal}"),
             Self::MoveWorkspaceToMonitor { workspace, monitor } => {
                 write!(f, "workspace {workspace} → monitor {monitor}")
@@ -71,7 +103,10 @@ fn lua(s: &str) -> String {
 fn shell_line(argv: &[String], cwd: &Option<PathBuf>) -> String {
     let cmd = shell_words::join(argv);
     match cwd {
-        Some(d) => format!("cd {} && exec {cmd}", shell_words::quote(&d.to_string_lossy())),
+        Some(d) => format!(
+            "cd {} && exec {cmd}",
+            shell_words::quote(&d.to_string_lossy())
+        ),
         None => cmd,
     }
 }
@@ -99,17 +134,27 @@ impl Command {
                 win(address)
             ),
             Self::MoveExact { address, x, y } => {
-                format!("hl.dsp.window.move({{ x = {x}, y = {y}, {} }})", win(address))
+                format!(
+                    "hl.dsp.window.move({{ x = {x}, y = {y}, {} }})",
+                    win(address)
+                )
             }
             Self::ResizeExact { address, w, h } => {
-                format!("hl.dsp.window.resize({{ x = {w}, y = {h}, {} }})", win(address))
+                format!(
+                    "hl.dsp.window.resize({{ x = {w}, y = {h}, {} }})",
+                    win(address)
+                )
             }
             Self::SetPinned { address, pinned } => format!(
                 "hl.dsp.window.pin({{ action = \"{}\", {} }})",
                 if *pinned { "enable" } else { "disable" },
                 win(address)
             ),
-            Self::Fullscreen { address, internal, client } => format!(
+            Self::Fullscreen {
+                address,
+                internal,
+                client,
+            } => format!(
                 "hl.dsp.window.fullscreen_state({{ internal = {internal}, client = {client}, {} }})",
                 win(address)
             ),
@@ -118,7 +163,11 @@ impl Command {
                 lua(workspace),
                 lua(monitor)
             ),
-            Self::Exec { argv, cwd, workspace } => {
+            Self::Exec {
+                argv,
+                cwd,
+                workspace,
+            } => {
                 let line = lua(&shell_line(argv, cwd));
                 match workspace {
                     Some(ws) => format!(
@@ -134,7 +183,9 @@ impl Command {
     fn render_legacy(&self) -> Vec<String> {
         match self {
             Self::MoveToWorkspace { address, workspace } => {
-                vec![format!("movetoworkspacesilent {workspace},address:{address}")]
+                vec![format!(
+                    "movetoworkspacesilent {workspace},address:{address}"
+                )]
             }
             Self::SetFloating { address, floating } => vec![format!(
                 "{} address:{address}",
@@ -148,14 +199,22 @@ impl Command {
             }
             // `pin` toggles; the planner only emits this when the state differs.
             Self::SetPinned { address, .. } => vec![format!("pin address:{address}")],
-            Self::Fullscreen { address, internal, client } => vec![
+            Self::Fullscreen {
+                address,
+                internal,
+                client,
+            } => vec![
                 format!("focuswindow address:{address}"),
                 format!("fullscreenstate {internal} {client}"),
             ],
             Self::MoveWorkspaceToMonitor { workspace, monitor } => {
                 vec![format!("moveworkspacetomonitor {workspace} {monitor}")]
             }
-            Self::Exec { argv, cwd, workspace } => {
+            Self::Exec {
+                argv,
+                cwd,
+                workspace,
+            } => {
                 let line = shell_line(argv, cwd);
                 vec![match workspace {
                     Some(ws) => format!("exec [workspace {ws} silent] {line}"),
@@ -174,12 +233,21 @@ mod tests {
 
     #[test]
     fn lua_matches_verified_syntax() {
-        let c = Command::MoveToWorkspace { address: A.into(), workspace: "special:magic".into() };
+        let c = Command::MoveToWorkspace {
+            address: A.into(),
+            workspace: "special:magic".into(),
+        };
         assert_eq!(
             c.render(Dialect::Lua),
-            vec![r#"hl.dsp.window.move({ workspace = "special:magic", follow = false, window = "address:0x58e4d02c5480" })"#]
+            vec![
+                r#"hl.dsp.window.move({ workspace = "special:magic", follow = false, window = "address:0x58e4d02c5480" })"#
+            ]
         );
-        let c = Command::Fullscreen { address: A.into(), internal: 1, client: 0 };
+        let c = Command::Fullscreen {
+            address: A.into(),
+            internal: 1,
+            client: 0,
+        };
         assert_eq!(
             c.render(Dialect::Lua)[0],
             r#"hl.dsp.window.fullscreen_state({ internal = 1, client = 0, window = "address:0x58e4d02c5480" })"#
@@ -189,7 +257,10 @@ mod tests {
     #[test]
     fn exec_is_quoted_for_shell_and_lua() {
         let c = Command::Exec {
-            argv: vec!["omarchy-launch-webapp".into(), "https://x.com/a b\"c".into()],
+            argv: vec![
+                "omarchy-launch-webapp".into(),
+                "https://x.com/a b\"c".into(),
+            ],
             cwd: Some("/home/me/my proj".into()),
             workspace: Some("2".into()),
         };

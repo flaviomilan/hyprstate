@@ -26,14 +26,46 @@ pub enum Sanitized {
 }
 
 const SENSITIVE_WORDS: &[&str] = &[
-    "password", "passwd", "pass", "pwd", "token", "secret", "apikey", "api-key", "api_key",
-    "auth", "authorization", "credential", "credentials", "cookie", "session", "private-key",
-    "access-key", "access_key", "client-secret", "client_secret", "bearer",
+    "password",
+    "passwd",
+    "pass",
+    "pwd",
+    "token",
+    "secret",
+    "apikey",
+    "api-key",
+    "api_key",
+    "auth",
+    "authorization",
+    "credential",
+    "credentials",
+    "cookie",
+    "session",
+    "private-key",
+    "access-key",
+    "access_key",
+    "client-secret",
+    "client_secret",
+    "bearer",
 ];
 
 const SENSITIVE_QUERY_KEYS: &[&str] = &[
-    "token", "access_token", "id_token", "refresh_token", "key", "api_key", "apikey", "auth",
-    "code", "session", "sessionid", "sig", "signature", "secret", "password", "pass",
+    "token",
+    "access_token",
+    "id_token",
+    "refresh_token",
+    "key",
+    "api_key",
+    "apikey",
+    "auth",
+    "code",
+    "session",
+    "sessionid",
+    "sig",
+    "signature",
+    "secret",
+    "password",
+    "pass",
 ];
 
 fn is_sensitive_name(name: &str) -> bool {
@@ -46,12 +78,16 @@ fn is_sensitive_name(name: &str) -> bool {
 
 /// URL with `user:pass@` or with a sensitive query parameter.
 fn url_is_sensitive(arg: &str) -> bool {
-    let Some((_, rest)) = arg.split_once("://") else { return false };
+    let Some((_, rest)) = arg.split_once("://") else {
+        return false;
+    };
     let authority = rest.split(['/', '?', '#']).next().unwrap_or("");
     if authority.contains('@') {
         return true;
     }
-    let Some((_, query)) = rest.split_once('?') else { return false };
+    let Some((_, query)) = rest.split_once('?') else {
+        return false;
+    };
     let query = query.split('#').next().unwrap_or("");
     query.split('&').any(|kv| {
         let k = kv.split('=').next().unwrap_or("").to_ascii_lowercase();
@@ -157,7 +193,10 @@ mod tests {
             "--app=https://web.whatsapp.com/",
             "/home/me/projects/some-very-long-directory-name-here",
         ]);
-        assert_eq!(sanitize(&argv, SensitiveArgs::Redact), Sanitized::Clean(argv));
+        assert_eq!(
+            sanitize(&argv, SensitiveArgs::Redact),
+            Sanitized::Clean(argv)
+        );
     }
 
     #[test]
@@ -172,12 +211,20 @@ mod tests {
             "https://example.com/cb?code=123&state=a",
             "eyJhbGciOiJIUzI1NiJ9eyJzdWIiOiIxMjM0NTY3ODkwIn0",
         ]);
-        let Sanitized::Redacted(out) = sanitize(&argv, SensitiveArgs::Redact) else { panic!() };
+        let Sanitized::Redacted(out) = sanitize(&argv, SensitiveArgs::Redact) else {
+            panic!()
+        };
         assert_eq!(
             out,
             v(&[
-                "app", "--token", REDACTED, "--api-key=<redacted>", "DB_PASSWORD=<redacted>",
-                REDACTED, REDACTED, REDACTED,
+                "app",
+                "--token",
+                REDACTED,
+                "--api-key=<redacted>",
+                "DB_PASSWORD=<redacted>",
+                REDACTED,
+                REDACTED,
+                REDACTED,
             ])
         );
         assert_eq!(sanitize(&argv, SensitiveArgs::Reject), Sanitized::Rejected);

@@ -20,12 +20,24 @@ mod tests {
 
     #[test]
     fn prefers_scope_then_env() {
-        let unit = AppUnit { launcher: Some("flatpak".into()), app_id: "com.spotify.Client".into() };
+        let unit = AppUnit {
+            launcher: Some("flatpak".into()),
+            app_id: "com.spotify.Client".into(),
+        };
         let p = ProcessInfo::default();
-        assert_eq!(app_id(&p, Some(&unit)).as_deref(), Some("com.spotify.Client"));
-        let p = ProcessInfo { env_flatpak_id: Some("org.x.Y".into()), ..Default::default() };
+        assert_eq!(
+            app_id(&p, Some(&unit)).as_deref(),
+            Some("com.spotify.Client")
+        );
+        let p = ProcessInfo {
+            env_flatpak_id: Some("org.x.Y".into()),
+            ..Default::default()
+        };
         assert_eq!(app_id(&p, None).as_deref(), Some("org.x.Y"));
-        let other = AppUnit { launcher: None, app_id: "foot".into() };
+        let other = AppUnit {
+            launcher: None,
+            app_id: "foot".into(),
+        };
         assert_eq!(app_id(&ProcessInfo::default(), Some(&other)), None);
     }
 }
