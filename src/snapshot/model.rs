@@ -77,6 +77,29 @@ pub struct WindowRecord {
     pub pid: i32,
     pub address: String,
     pub app: AppResolution,
+    /// Extra conditions an existing window must meet to be reused for this
+    /// one. Set by worksets; snapshots never need it.
+    #[serde(default, skip_serializing_if = "Require::is_empty")]
+    pub require: Require,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Require {
+    /// The window's working directory (a terminal's shell) must be this.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cwd: Option<PathBuf>,
+    /// The window's title must contain this.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title_contains: Option<String>,
+    /// Never reuse an already open window: always launch a new one.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub always_launch: bool,
+}
+
+impl Require {
+    pub fn is_empty(&self) -> bool {
+        *self == Self::default()
+    }
 }
 
 /// Dispatcher argument addressing a workspace (`3`, `name:web`, `special:magic`).

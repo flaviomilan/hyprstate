@@ -139,6 +139,7 @@ pub fn build_snapshot_at(
             pid: c.pid,
             address: c.address.clone(),
             app: w.app.clone(),
+            require: Default::default(),
         });
     }
     let mut workspaces: Vec<WorkspaceRecord> = live

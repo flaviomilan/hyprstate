@@ -69,6 +69,8 @@ pub enum Source {
     ExecutableDesktop,
     Cmdline,
     ClassOnly,
+    /// Declared in a workset file.
+    Workset,
 }
 
 impl fmt::Display for Source {
@@ -84,6 +86,7 @@ impl fmt::Display for Source {
             Self::ExecutableDesktop => "executable + desktop entry",
             Self::Cmdline => "command line",
             Self::ClassOnly => "class only",
+            Self::Workset => "workset entry",
         })
     }
 }
@@ -96,6 +99,7 @@ pub enum LaunchVia {
     WebApp,
     Cmdline,
     Override,
+    Workset,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

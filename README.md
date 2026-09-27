@@ -13,6 +13,11 @@ hyprstate list                                 saved snapshots
 hyprstate inspect [SNAPSHOT] [--windows]       live desktop (default) or a snapshot
 hyprstate restore [SNAPSHOT] [--dry-run]       default: most recent snapshot
 hyprstate diff FROM [TO]                       default TO: live desktop
+
+hyprstate workset create NAME                  new workset from a commented template
+hyprstate workset save NAME [-w WORKSPACE]...  live desktop (or some workspaces) → workset
+hyprstate workset open NAME [--dry-run]        reuse, launch and place its windows
+hyprstate workset list | delete NAME
 ```
 
 Every command takes `--json`. Logs go to stderr (`-v`, `-vv`, `--log-format json`).
@@ -39,6 +44,49 @@ Actions:
   reuse: 2 (1 to move)
   unresolved: 1
 ```
+
+## Worksets
+
+A snapshot records the desktop you *had*. A workset declares a desktop you
+*want*, and you open it on purpose ("work on recsys"). Worksets are
+hand-editable TOML in `~/.config/hyprstate/worksets/NAME.toml`:
+
+```toml
+description = "Recsys at work"
+
+[[windows]]
+workspace = 1
+command = "idea ~/projects/recsys"
+class = "jetbrains-idea"          # helps recognise an already open window
+
+[[windows]]
+workspace = 2
+command = "kitty"
+cwd = "~/projects/recsys"         # launch here; only reuse a kitty that is here
+
+[[windows]]
+workspace = 3
+command = "omarchy-launch-webapp https://linear.app/"
+
+[[windows]]
+workspace = "special:music"
+command = "flatpak run com.spotify.Client"
+floating = true
+position = [100, 100]
+size = [900, 600]
+```
+
+`open` goes through the same engine as `restore`. An already open window of
+the same application is reused and moved instead of launching a duplicate,
+and opening the same workset twice does nothing the second time. Because a
+workset should never take over an unrelated window, an entry can narrow
+which open windows count: `cwd` (the window's directory, for terminals),
+`title_contains`, or `reuse = false` to always launch a new window. Windows
+that are not in the workset are left alone. Entries without `floating = true`
+are tiled.
+
+`workset save` writes the current desktop in this format as a starting point.
+It keeps the previous file as `NAME.toml.bak`, since saving replaces comments.
 
 ## How it works
 
@@ -129,6 +177,7 @@ These are deliberate non-goals, listed to prevent scope creep:
 - KDE, Sway or other compositors
 - a GUI, TUI or Waybar module (a TUI may come later, as a client of the engine)
 - a daemon (planned for later: auto-save and auto-restore)
+- the `session` commands from the full CLI plan (not built yet)
 - SQLite, cloud sync, clipboard management, or monitor management
 - AI of any kind: the matching should stand on its own
 

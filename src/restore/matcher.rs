@@ -12,6 +12,7 @@
 
 use std::collections::HashSet;
 use std::fmt;
+use std::path::Path;
 
 use serde::Serialize;
 
@@ -28,6 +29,17 @@ pub trait Matchable {
     fn initial_title(&self) -> &str;
     fn workspace(&self) -> &WorkspaceRef;
     fn floating(&self) -> bool;
+    /// Working directory of a live window (a terminal's shell), if known.
+    fn cwd(&self) -> Option<&Path> {
+        None
+    }
+    /// Hard conditions on candidates (expected side only).
+    fn required_cwd(&self) -> Option<&Path> {
+        None
+    }
+    fn required_title(&self) -> Option<&str> {
+        None
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -83,6 +95,11 @@ struct Scored {
 }
 
 fn score<E: Matchable, C: Matchable>(e: &E, c: &C) -> Option<Scored> {
+    if e.required_cwd().is_some_and(|want| c.cwd() != Some(want))
+        || e.required_title().is_some_and(|want| !c.title().contains(want))
+    {
+        return None;
+    }
     // Same app but a different initial class is a different kind of window
     // (e.g. `foot --app-id scratch` vs plain `foot`). Empty = not yet known.
     let class_compatible = e.initial_class().is_empty()
@@ -312,6 +329,35 @@ pub(crate) mod tests {
         probe.class = "scratchpad".into();
         let a = assign(&[probe], &[w("foot", "x", 1)]);
         assert!(a.matches.is_empty());
+    }
+
+    struct Req(W, Option<&'static str>, Option<&'static str>);
+
+    impl Matchable for Req {
+        fn identity(&self) -> &AppIdentity { self.0.identity() }
+        fn confidence(&self) -> Confidence { self.0.confidence() }
+        fn class(&self) -> &str { self.0.class() }
+        fn initial_class(&self) -> &str { self.0.initial_class() }
+        fn title(&self) -> &str { self.0.title() }
+        fn initial_title(&self) -> &str { self.0.initial_title() }
+        fn workspace(&self) -> &WorkspaceRef { self.0.workspace() }
+        fn floating(&self) -> bool { self.0.floating() }
+        fn cwd(&self) -> Option<&Path> { self.1.map(Path::new) }
+        fn required_cwd(&self) -> Option<&Path> { self.1.map(Path::new) }
+        fn required_title(&self) -> Option<&str> { self.2 }
+    }
+
+    #[test]
+    fn requirements_are_hard_constraints() {
+        let want = Req(w("kitty", "", 2), Some("/p/recsys"), None);
+        let other = Req(w("kitty", "x", 2), Some("/p/other"), None);
+        let right = Req(w("kitty", "x", 7), Some("/p/recsys"), None);
+        assert!(assign(std::slice::from_ref(&want), &[other]).matches.is_empty());
+        assert_eq!(assign(&[want], &[right]).matches.len(), 1);
+
+        let want = Req(w("firefox", "", 3), None, Some("Linear"));
+        assert!(assign(std::slice::from_ref(&want), &[w("firefox", "YouTube", 3)]).matches.is_empty());
+        assert_eq!(assign(&[want], &[w("firefox", "Linear - Issues", 3)]).matches.len(), 1);
     }
 
     #[test]

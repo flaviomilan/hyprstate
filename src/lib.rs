@@ -6,3 +6,4 @@ pub mod hyprland;
 pub mod policy;
 pub mod restore;
 pub mod snapshot;
+pub mod workset;

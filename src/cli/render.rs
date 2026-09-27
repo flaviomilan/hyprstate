@@ -9,6 +9,7 @@ use crate::restore::executor::{Outcome, Report};
 use crate::restore::planner::{Action, Plan, label};
 use crate::snapshot::model::{Snapshot, WindowRecord};
 use crate::snapshot::storage::Listed;
+use crate::workset::Workset;
 
 /// Sort key putting numbered workspaces first, then named, then special.
 fn ws_order(id: i64, name: &str) -> (u8, i64, String) {
@@ -145,7 +146,10 @@ fn truncate(s: &str, n: usize) -> String {
 }
 
 pub fn plan(p: &Plan, s: &Snapshot) -> String {
-    let mut o = format!("Snapshot: {} ({})\n", p.snapshot, local_time(&s.created_at));
+    let mut o = match p.snapshot.strip_prefix("workset:") {
+        Some(name) => format!("Workset: {name}\n"),
+        None => format!("Snapshot: {} ({})\n", p.snapshot, local_time(&s.created_at)),
+    };
     let groups = by_workspace(p.items.iter().map(|i| (i.placement.workspace.id, i.placement.workspace.name.as_str(), i)));
     for (name, items) in groups.values() {
         writeln!(o, "\nWorkspace {name}").unwrap();
@@ -199,7 +203,8 @@ pub fn plan(p: &Plan, s: &Snapshot) -> String {
         writeln!(o, "  other windows left alone: {}", s.untouched).unwrap();
     }
     if p.is_noop() {
-        writeln!(o, "\nDesktop already matches the snapshot.").unwrap();
+        let what = if p.snapshot.starts_with("workset:") { "workset" } else { "snapshot" };
+        writeln!(o, "\nDesktop already matches the {what}.").unwrap();
     }
     o
 }
@@ -264,6 +269,36 @@ pub fn diff(d: &Diff) -> String {
         writeln!(o, "\n{}  \"{}\"", ch.window.label, truncate(&ch.window.title, 50)).unwrap();
         for f in &ch.changes {
             writeln!(o, "  {}: {} → {}", f.field, f.from, f.to).unwrap();
+        }
+    }
+    o
+}
+
+pub fn workset_saved(name: &str, ws: &Workset, path: &Path, backup: Option<&Path>, skipped: &[String]) -> String {
+    let n = ws.windows.len();
+    let mut o = format!("Saved workset {name} ({n} window{})\n  {}\n", if n == 1 { "" } else { "s" }, home_relative(path));
+    if let Some(b) = backup {
+        writeln!(o, "  previous version: {}", home_relative(b)).unwrap();
+    }
+    if !skipped.is_empty() {
+        writeln!(o, "\nNot saved (no way to relaunch):").unwrap();
+        for s in skipped {
+            writeln!(o, "  ✗ {s}").unwrap();
+        }
+    }
+    o
+}
+
+pub fn worksets(list: &[(String, anyhow::Result<Workset>)], dir: &Path) -> String {
+    if list.is_empty() {
+        return format!("No worksets in {}\n(create one: hyprstate workset create NAME, or save the desktop: hyprstate workset save NAME)\n", home_relative(dir));
+    }
+    let w = list.iter().map(|(n, _)| n.len()).max().unwrap_or(4).max(4);
+    let mut o = format!("{:<w$}  WINDOWS  DESCRIPTION\n", "NAME");
+    for (name, ws) in list {
+        match ws {
+            Ok(ws) => writeln!(o, "{name:<w$}  {:<7}  {}", ws.windows.len(), ws.description.as_deref().unwrap_or("")).unwrap(),
+            Err(e) => writeln!(o, "{name:<w$}  ✗ invalid: {e:#}").unwrap(),
         }
     }
     o
