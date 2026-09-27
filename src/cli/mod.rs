@@ -19,6 +19,8 @@ use crate::restore::planner::{Plan, PlanInput, plan};
 use crate::snapshot::capture::{Discovery, ResolvedWindow, build_snapshot};
 use crate::snapshot::model::Snapshot;
 use crate::snapshot::storage::{Store, default_name};
+use crate::workset::store::WorksetStore;
+use crate::workset::{WorkspaceSpec, Workset};
 
 #[derive(Parser)]
 #[command(name = "hyprstate", version, about = "Capture, inspect, diff and restore Hyprland desktops")]
@@ -82,6 +84,9 @@ enum Cmd {
         #[arg(long)]
         timeout: Option<u64>,
     },
+    /// Named desired desktops you open on purpose
+    #[command(subcommand)]
+    Workset(WorksetCmd),
     /// Compare two snapshots, or a snapshot with the live desktop
     Diff {
         from: String,
@@ -90,6 +95,38 @@ enum Cmd {
         #[arg(long)]
         json: bool,
     },
+}
+
+#[derive(Subcommand)]
+enum WorksetCmd {
+    /// Create an empty workset from a commented template
+    Create { name: String },
+    /// Save the live desktop (or some workspaces) as a workset
+    Save {
+        name: String,
+        /// Only these workspaces (repeatable): 3, "special:chat", "web"
+        #[arg(short, long = "workspace", value_name = "WORKSPACE")]
+        workspaces: Vec<String>,
+    },
+    /// Open a workset: reuse, launch and place its windows
+    Open {
+        name: String,
+        /// Show the plan without changing anything
+        #[arg(long)]
+        dry_run: bool,
+        #[arg(long)]
+        json: bool,
+        /// Seconds to wait for launched windows (default: config, 30)
+        #[arg(long)]
+        timeout: Option<u64>,
+    },
+    /// List worksets
+    List {
+        #[arg(long)]
+        json: bool,
+    },
+    /// Delete a workset file
+    Delete { name: String },
 }
 
 /// Exit codes: 0 ok, 1 error, 2 restore finished with failed windows.
@@ -200,45 +237,113 @@ fn run(cli: Cli) -> Result<ExitCode> {
                 None => store.latest()?,
             };
             let discovery = Discovery::from_system(&cfg);
+            return apply(&cfg, &discovery, &snap, dry_run, json, timeout);
+        }
+        Cmd::Workset(cmd) => return workset(&cfg, cmd),
+    }
+    Ok(ExitCode::SUCCESS)
+}
+
+/// Plans `snap` against the live desktop, then prints the plan (`dry_run`) or
+/// carries it out. Shared by `restore` and `workset open`.
+fn apply(
+    cfg: &Config,
+    discovery: &Discovery,
+    snap: &Snapshot,
+    dry_run: bool,
+    json: bool,
+    timeout: Option<u64>,
+) -> Result<ExitCode> {
+    let live = capture_live(discovery, "live".into())?;
+    let exclusions = cfg.exclusions();
+    let runnable = |p: &str| which(p).is_some();
+    let the_plan: Plan = plan(&PlanInput {
+        snapshot: snap,
+        live: &live.state,
+        windows: &live.windows,
+        overrides: &cfg.windows,
+        exclusions: &exclusions,
+        launch_wrapper: &cfg.restore.launch_wrapper,
+        runnable: &runnable,
+    });
+    if dry_run {
+        if json {
+            print_json(&the_plan)?;
+        } else {
+            print!("{}", render::plan(&the_plan, snap));
+        }
+        return Ok(ExitCode::SUCCESS);
+    }
+    // Subscribe before launching anything so no window is missed.
+    let mut events = HyprEvents::connect().context("connecting to Hyprland events")?;
+    let executor = Executor {
+        compositor: &live.socket,
+        discovery,
+        options: ExecOptions {
+            timeout: Duration::from_secs(timeout.unwrap_or(cfg.restore.timeout)),
+            ..Default::default()
+        },
+    };
+    let report = executor.run(&the_plan, snap, &mut events);
+    if json {
+        print_json(&report)?;
+    } else {
+        print!("{}", render::report(&report));
+    }
+    Ok(if report.failures() > 0 { ExitCode::from(2) } else { ExitCode::SUCCESS })
+}
+
+fn workset(cfg: &Config, cmd: WorksetCmd) -> Result<ExitCode> {
+    let store = WorksetStore::open_default()?;
+    match cmd {
+        WorksetCmd::Create { name } => {
+            let path = store.create(&name)?;
+            println!("Created workset {name}\n  {}", path.display());
+            println!("Edit it, then: hyprstate workset open {name} --dry-run");
+        }
+        WorksetCmd::Save { name, workspaces } => {
+            store.path(&name)?;
+            let only: Vec<WorkspaceSpec> = workspaces.iter().map(|w| WorkspaceSpec::Name(w.clone())).collect();
+            let discovery = Discovery::from_system(cfg);
             let live = capture_live(&discovery, "live".into())?;
-            let exclusions = cfg.exclusions();
-            let runnable = |p: &str| which(p).is_some();
-            let the_plan: Plan = plan(&PlanInput {
-                snapshot: &snap,
-                live: &live.state,
-                windows: &live.windows,
-                overrides: &cfg.windows,
-                exclusions: &exclusions,
-                launch_wrapper: &cfg.restore.launch_wrapper,
-                runnable: &runnable,
-            });
-            if dry_run {
-                if json {
-                    print_json(&the_plan)?;
-                } else {
-                    print!("{}", render::plan(&the_plan, &snap));
-                }
-                return Ok(ExitCode::SUCCESS);
+            let (mut ws, skipped) = Workset::from_live(&live.windows, &only);
+            if ws.windows.is_empty() {
+                anyhow::bail!("nothing to save: no windows on the selected workspaces");
             }
-            // Subscribe before launching anything so no window is missed.
-            let mut events = HyprEvents::connect().context("connecting to Hyprland events")?;
-            let executor = Executor {
-                compositor: &live.socket,
-                discovery: &discovery,
-                options: ExecOptions {
-                    timeout: Duration::from_secs(timeout.unwrap_or(cfg.restore.timeout)),
-                    ..Default::default()
-                },
-            };
-            let report = executor.run(&the_plan, &snap, &mut events);
+            // Keep a hand-written description across saves.
+            if let Ok(old) = store.load(&name) {
+                ws.description = old.description;
+            }
+            let (path, backup) = store.save(&name, &ws)?;
+            print!("{}", render::workset_saved(&name, &ws, &path, backup.as_deref(), &skipped));
+        }
+        WorksetCmd::Open { name, dry_run, json, timeout } => {
+            let ws = store.load(&name)?;
+            if ws.windows.is_empty() {
+                anyhow::bail!("workset '{name}' has no windows; edit {}", store.path(&name)?.display());
+            }
+            let discovery = Discovery::from_system(cfg);
+            let snap = ws.to_snapshot(&name, &discovery.index);
+            return apply(cfg, &discovery, &snap, dry_run, json, timeout);
+        }
+        WorksetCmd::List { json } => {
+            let list = store.list()?;
             if json {
-                print_json(&report)?;
+                let rows: Vec<_> = list
+                    .iter()
+                    .map(|(n, ws)| match ws {
+                        Ok(ws) => serde_json::json!({ "name": n, "description": ws.description, "windows": ws.windows.len() }),
+                        Err(e) => serde_json::json!({ "name": n, "error": format!("{e:#}") }),
+                    })
+                    .collect();
+                print_json(&rows)?;
             } else {
-                print!("{}", render::report(&report));
+                print!("{}", render::worksets(&list, store.dir()));
             }
-            if report.failures() > 0 {
-                return Ok(ExitCode::from(2));
-            }
+        }
+        WorksetCmd::Delete { name } => {
+            let path = store.delete(&name)?;
+            println!("Deleted workset {name} ({})", path.display());
         }
     }
     Ok(ExitCode::SUCCESS)

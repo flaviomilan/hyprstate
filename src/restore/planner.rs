@@ -41,6 +41,12 @@ impl Matchable for WindowRecord {
     fn floating(&self) -> bool {
         self.floating
     }
+    fn required_cwd(&self) -> Option<&std::path::Path> {
+        self.require.cwd.as_deref()
+    }
+    fn required_title(&self) -> Option<&str> {
+        self.require.title_contains.as_deref()
+    }
 }
 
 impl Matchable for ResolvedWindow {
@@ -67,6 +73,9 @@ impl Matchable for ResolvedWindow {
     }
     fn floating(&self) -> bool {
         self.client.floating
+    }
+    fn cwd(&self) -> Option<&std::path::Path> {
+        self.app.cwd.as_deref()
     }
 }
 
@@ -250,16 +259,19 @@ pub fn plan(input: &PlanInput) -> Plan {
         }
     }
 
-    let expected: Vec<&WindowRecord> = wanted.iter().map(|&i| &snap.windows[i]).collect();
+    // `always_launch` records never take over an already open window.
+    let reusable: Vec<usize> =
+        wanted.iter().copied().filter(|&i| !snap.windows[i].require.always_launch).collect();
     let assignment = matcher::assign(
-        &expected.iter().map(|r| (*r).clone()).collect::<Vec<_>>(),
+        &reusable.iter().map(|&i| snap.windows[i].clone()).collect::<Vec<_>>(),
         &candidates.iter().map(|w| (*w).clone()).collect::<Vec<_>>(),
     );
 
-    for (ei, &i) in wanted.iter().enumerate() {
+    for &i in &wanted {
         let r = &snap.windows[i];
         let placement = Placement::of(r);
-        let action = match assignment.for_expected(ei) {
+        let matched = reusable.iter().position(|&j| j == i).and_then(|ei| assignment.for_expected(ei));
+        let action = match matched {
             Some(m) => {
                 let client = &candidates[m.candidate].client;
                 Action::Reuse {
