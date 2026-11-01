@@ -22,11 +22,13 @@ jobs:
       group: release-plz-${{ github.ref }}
       cancel-in-progress: false
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           token: ${{ secrets.RELEASE_PLZ_TOKEN }}
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          toolchain: stable
       - uses: release-plz/action@8921286633dfa0c4020f7f30bd1c14fe19cbb10e # v0.5.142
         with:
           command: release-pr
@@ -45,11 +47,13 @@ jobs:
       created: ${{ steps.plz.outputs.releases_created }}
       tag: ${{ fromJSON(steps.plz.outputs.releases || '[{}]')[0].tag }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           persist-credentials: false
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          toolchain: stable
       - id: plz
         uses: release-plz/action@8921286633dfa0c4020f7f30bd1c14fe19cbb10e # v0.5.142
         with:
